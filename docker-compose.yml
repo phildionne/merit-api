@@ -1,0 +1,21 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      DEM_PATH: /data/mosaic/canada.vrt
+      PORT: "8000"
+    volumes:
+      - ./data:/data:ro
+    ports:
+      - "8000:8000"
+
+  terracotta:
+    build:
+      context: .
+      dockerfile: Dockerfile.terracotta
+    volumes:
+      - ./data:/data:ro
+    ports:
+      - "8080:8080"
