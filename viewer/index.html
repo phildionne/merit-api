@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>MERIT Terracotta Viewer</title>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+  <style>
+    html, body, #map { height: 100%; margin: 0; }
+    .elev-readout {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 6px 10px;
+      border-radius: 4px;
+      font: 12px/1.4 system-ui, -apple-system, sans-serif;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+  </style>
+</head>
+<body>
+<div id="map"></div>
+<div class="elev-readout" id="elevReadout">Move mouse over map…</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const map = L.map('map').setView([42.5, -58.0], 6);
+  const elevEl = document.getElementById('elevReadout');
+  const apiBase = 'http://127.0.0.1:8000';
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  L.tileLayer(
+    'http://127.0.0.1:8080/singleband/n40w060/{z}/{x}/{y}.png',
+    { maxZoom: 12 }
+  ).addTo(map);
+
+  let pending = null;
+  let lastLatLng = null;
+
+  function formatElev(json) {
+    if (json.nodata) return 'nodata';
+    if (json.elevation_m === null || json.elevation_m === undefined) return 'null';
+    return `${json.elevation_m.toFixed(2)} m`;
+  }
+
+  map.on('mousemove', (e) => {
+    lastLatLng = e.latlng;
+    if (pending) return;
+    pending = setTimeout(async () => {
+      const { lat, lng } = lastLatLng;
+      try {
+        const resp = await fetch(`${apiBase}/elevation?lat=${lat}&lng=${lng}`);
+        if (!resp.ok) {
+          elevEl.textContent = `lat ${lat.toFixed(4)}, lng ${lng.toFixed(4)} — error`;
+        } else {
+          const json = await resp.json();
+          elevEl.textContent = `lat ${lat.toFixed(4)}, lng ${lng.toFixed(4)} — ${formatElev(json)}`;
+        }
+      } catch (err) {
+        elevEl.textContent = `lat ${lat.toFixed(4)}, lng ${lng.toFixed(4)} — error`;
+      } finally {
+        pending = null;
+      }
+    }, 150);
+  });
+</script>
+</body>
+</html>
