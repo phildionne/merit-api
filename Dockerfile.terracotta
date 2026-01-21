@@ -1,0 +1,16 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libexpat1 \
+  && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --upgrade pip
+ENV PIP_ONLY_BINARY=rasterio
+
+RUN pip install --no-cache-dir terracotta
+
+ENV PORT=8080
+
+CMD ["terracotta", "serve", "-r", "/data/canada/cog/{tile}_elv.tif", "--port", "8080", "--allow-all-ips"]
