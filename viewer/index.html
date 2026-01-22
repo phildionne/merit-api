@@ -20,6 +20,15 @@
       font: 12px/1.4 system-ui, -apple-system, sans-serif;
       box-shadow: 0 1px 3px rgba(0,0,0,0.2);
     }
+    .tile-label {
+      font: 11px/1.1 system-ui, -apple-system, sans-serif;
+      color: #0a2a4a;
+      background: rgba(255, 255, 255, 0.85);
+      border: 1px solid rgba(10, 42, 74, 0.3);
+      border-radius: 3px;
+      padding: 1px 4px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+    }
   </style>
 </head>
 <body>
@@ -40,6 +49,69 @@
     'http://127.0.0.1:8080/singleband/n40w060/{z}/{x}/{y}.png',
     { maxZoom: 12 }
   ).addTo(map);
+
+  const canadaBounds = [
+    [41.0, -80.0],
+    [63.0, -55.0]
+  ];
+
+  L.rectangle(canadaBounds, {
+    color: '#ff3b30',
+    weight: 2,
+    fill: false,
+    dashArray: '6 6'
+  }).addTo(map);
+
+  function parseTileId(tileId) {
+    const match = /^([ns])(\d{2})([ew])(\d{3})/.exec(tileId);
+    if (!match) return null;
+    const latSign = match[1] === 's' ? -1 : 1;
+    const lonSign = match[3] === 'w' ? -1 : 1;
+    const lat = latSign * Number(match[2]);
+    const lon = lonSign * Number(match[4]);
+    return { lat, lon };
+  }
+
+  function tileBounds(tileId) {
+    const parsed = parseTileId(tileId);
+    if (!parsed) return null;
+    const { lat, lon } = parsed;
+    return [
+      [lat, lon],
+      [lat + 5, lon + 5]
+    ];
+  }
+
+  async function addDatasetBounds() {
+    try {
+      const resp = await fetch('http://127.0.0.1:8080/datasets');
+      if (!resp.ok) return;
+      const json = await resp.json();
+      const datasets = Array.isArray(json.datasets) ? json.datasets : [];
+      datasets.forEach((ds) => {
+        const tileId = ds.tile || ds.name || ds.id;
+        if (!tileId) return;
+        const bounds = tileBounds(tileId);
+        if (!bounds) return;
+        L.rectangle(bounds, {
+          color: '#007aff',
+          weight: 1,
+          fill: false,
+          opacity: 0.9
+        })
+          .addTo(map)
+          .bindTooltip(tileId, {
+            permanent: true,
+            direction: 'center',
+            className: 'tile-label'
+          });
+      });
+    } catch (err) {
+      // Ignore if terracotta is not running.
+    }
+  }
+
+  addDatasetBounds();
 
   let pending = null;
   let lastLatLng = null;
