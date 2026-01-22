@@ -6,7 +6,7 @@ This repo provides an end-to-end workflow to **manually download MERIT-Hydro dat
 
 ## What you get
 
-- Local preprocessing pipeline (host machine) using GDAL
+- Local preprocessing pipeline using GDAL
 - Output datasets:
   - `data/canada/clipped/*.tif` (Canada bbox clips)
   - `data/canada/cog/*.tif` (COG-optimized GeoTIFFs)
@@ -39,8 +39,8 @@ Used by the clip script, configurable via env vars:
 2. **Prepare directories**
 
    ```bash
-   ./scripts/00_check_deps.sh
-   ./scripts/10_prepare_dirs.sh
+   ./scripts/check_deps.sh
+   ./scripts/prepare_dirs.sh
    ```
 
 3. **Manual download step (required)**
@@ -54,25 +54,25 @@ Used by the clip script, configurable via env vars:
 4. **Unpack and discover**
 
    ```bash
-   ./scripts/30_unpack_and_discover.sh
+   ./scripts/unpack_and_discover.sh
    ```
 
 5. **Clip to Canada bbox**
 
    ```bash
-   ./scripts/40_clip_canada.sh
+   ./scripts/clip_canada.sh
    ```
 
 6. **COGify the clipped tiles**
 
    ```bash
-   ./scripts/50_cogify.sh
+   ./scripts/cogify.sh
    ```
 
 7. **Build VRT mosaic**
 
    ```bash
-   ./scripts/60_build_vrt.sh
+   ./scripts/build_vrt.sh
    ```
 
 8. **Run the API**
@@ -85,29 +85,28 @@ Used by the clip script, configurable via env vars:
 
 ## Script-by-script details
 
-### `scripts/00_check_deps.sh`
+### `scripts/check_deps.sh`
 
 Validates required tools and prints versions. Fails fast if missing tools.
 
-### `scripts/10_prepare_dirs.sh`
+### `scripts/prepare_dirs.sh`
 
 Creates the full data directory layout under `data/` and writes `data/urls.txt.example` if missing.
 
-### `scripts/20_download_merit_hydro.sh`
+### Manual download / placement
 
-Supports two workflows:
+- Register/accept the MERIT-Hydro license and obtain the download URLs (or archive files) you need.
+- Place your `.tar` files into `data/raw/downloads/`, or list the URLs in `data/urls.txt` so you can fetch them with your preferred downloader.
+- The archives should cover the bounding box you care about (e.g., `elv_n30w090.tar`, `elv_n30w060.tar`, `elv_n60w090.tar`, `elv_n60w060.tar` for the default bbox).
 
-- If archives exist in `data/raw/downloads`, it **skips downloading**.
-- Otherwise, it reads `data/urls.txt` and downloads each URL with `curl -L --fail --retry 3 --continue-at -`.
-
-### `scripts/30_unpack_and_discover.sh`
+### `scripts/unpack_and_discover.sh`
 
 - Unpacks `*.zip` and `*.tar.gz`/`*.tgz` into `data/raw/extracted/`.
 - Finds all `.tif`/`.tiff` and symlinks them into `data/raw/tifs/`.
 - Prints a summary (count + `gdalinfo` lines for up to 5 rasters).
 - Idempotent: if `data/raw/extracted/` already has contents, it **skips extraction** unless `FORCE=1`.
 
-### `scripts/40_clip_canada.sh`
+### `scripts/clip_canada.sh`
 
 - Clips each input raster to the Canada bbox using `gdalwarp`.
 - Reprojects to EPSG:4326 if needed.
@@ -116,7 +115,7 @@ Supports two workflows:
 - Deletes fully nodata outputs (empty clips).
 - Skips if output is newer than input.
 
-### `scripts/50_cogify.sh`
+### `scripts/cogify.sh`
 
 - Converts each clipped raster into a Cloud-Optimized GeoTIFF (COG) using `gdal_translate -of COG`.
 - Uses:
@@ -125,13 +124,13 @@ Supports two workflows:
   - `OVERVIEWS=AUTO` with nearest resampling
 - Skips if output is newer than input.
 
-### `scripts/60_build_vrt.sh`
+### `scripts/build_vrt.sh`
 
 - Builds `data/mosaic/canada.vrt` from all COGs using `gdalbuildvrt`.
 - Fails if no COGs exist.
 - Validates the VRT with `gdalinfo`.
 
-### `scripts/70_smoke_test.sh`
+### `scripts/smoke_test.sh`
 
 - Requires the Docker API to be running.
 - Calls `/health` and `/elevation` for Québec City.
@@ -216,7 +215,7 @@ If you change the Terracotta port or dataset key, edit `viewer/index.html`.
 
 - The VRT references the COG file paths at build time. If you move or delete COGs, or the API runs in Docker with `/data` mounted, rebuild the VRT using:
   ```bash
-  ./scripts/60_build_vrt.sh
+  ./scripts/build_vrt.sh
   ```
 
 ## Data size & storage
