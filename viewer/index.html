@@ -29,6 +29,32 @@
       padding: 1px 4px;
       box-shadow: 0 1px 2px rgba(0,0,0,0.15);
     }
+    .leaflet-control-base-switcher {
+      background: linear-gradient(135deg, rgba(10, 24, 58, 0.92), rgba(8, 68, 110, 0.9));
+      padding: 4px;
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,0.25);
+      box-shadow: 0 15px 30px rgba(3, 6, 30, 0.45);
+    }
+    .leaflet-control-base-switcher button {
+      border: none;
+      margin: 0 2px;
+      padding: 6px 14px;
+      border-radius: 12px;
+      font: 12px/1.3 "Space Mono", "IBM Plex Mono", monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.12);
+      color: #e8f3ff;
+      transition: all 0.2s ease;
+    }
+    .leaflet-control-base-switcher button:hover,
+    .leaflet-control-base-switcher button.is-active {
+      background: rgba(255, 255, 255, 0.95);
+      color: #032341;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+    }
   </style>
 </head>
 <body>
@@ -40,10 +66,61 @@
   const elevEl = document.getElementById('elevReadout');
   const apiBase = 'http://127.0.0.1:8000';
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
+  const baseLayers = {
+    osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }),
+    sat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19,
+      attribution: 'Tiles &copy; Esri'
+    })
+  };
+
+  const switchBaseLayer = (key) => {
+    Object.values(baseLayers).forEach((layer) => {
+      if (map.hasLayer(layer)) {
+        map.removeLayer(layer);
+      }
+    });
+    if (baseLayers[key]) {
+      baseLayers[key].addTo(map);
+    }
+  };
+
+  baseLayers.osm.addTo(map);
+
+  const BaseSwitcherControl = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd() {
+      const container = L.DomUtil.create('div', 'leaflet-control-base-switcher');
+      this._buttons = {};
+      const specs = [
+        { key: 'osm', label: 'OSM' },
+        { key: 'sat', label: 'Satellite' }
+      ];
+      specs.forEach(({ key, label }) => {
+        const btn = L.DomUtil.create('button', '', container);
+        btn.type = 'button';
+        btn.textContent = label;
+        btn.dataset.layer = key;
+        if (key === 'osm') {
+          btn.classList.add('is-active');
+        }
+        L.DomEvent.on(btn, 'click', () => {
+          if (btn.classList.contains('is-active')) return;
+          switchBaseLayer(key);
+          Object.values(this._buttons).forEach((b) => b.classList.remove('is-active'));
+          btn.classList.add('is-active');
+        });
+        this._buttons[key] = btn;
+      });
+      L.DomEvent.disableClickPropagation(container);
+      return container;
+    }
+  });
+
+  map.addControl(new BaseSwitcherControl());
 
   L.tileLayer(
     'http://127.0.0.1:8080/singleband/n40w060/{z}/{x}/{y}.png',
@@ -112,6 +189,28 @@
   }
 
   addDatasetBounds();
+
+  const switcherButtons = document.querySelectorAll('.base-switcher__button');
+  switcherButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      if (button.classList.contains('is-active')) return;
+      switcherButtons.forEach((btn) => {
+        btn.classList.remove('is-active');
+        btn.setAttribute('aria-pressed', 'false');
+      });
+      button.classList.add('is-active');
+      button.setAttribute('aria-pressed', 'true');
+      Object.values(baseLayers).forEach((layer) => {
+        if (map.hasLayer(layer)) {
+          map.removeLayer(layer);
+        }
+      });
+      const target = button.dataset.layer;
+      if (baseLayers[target]) {
+        baseLayers[target].addTo(map);
+      }
+    });
+  });
 
   let pending = null;
   let lastLatLng = null;
