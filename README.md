@@ -19,10 +19,10 @@ This repo provides an end-to-end workflow to **manually download MERIT-Hydro dat
 
 Used by the clip script, configurable via env vars:
 
-- `BBOX_MIN_LON=-141.0`
+- `BBOX_MIN_LON=-80.0`
 - `BBOX_MIN_LAT=41.0`
-- `BBOX_MAX_LON=-52.0`
-- `BBOX_MAX_LAT=84.0`
+- `BBOX_MAX_LON=-55.0`
+- `BBOX_MAX_LAT=63.0`
 
 ## Quickstart
 
@@ -45,109 +45,43 @@ Used by the clip script, configurable via env vars:
 
 3. **Manual download step (required)**
 
-   - Register/accept MERIT-Hydro license and obtain download URLs.
-   - Do not bypass the license gate. Use the official portal to obtain your URLs.
+   - Register/accept MERIT-Hydro license and obtain download credentials
+   - Download this subset of the data (covers the default bbox -80 to -55 lon, 41 to 63 lat):
+     - N60–N90: elv_n60w090.tar, elv_n60w060.tar
+     - N30–N60: elv_n30w090.tar, elv_n30w060.tar
    - Download the required archives and place them in `data/raw/downloads/`.
 
-#### N60–N90
-
-- elv_n60w150.tar
-- elv_n60w120.tar
-- elv_n60w090.tar
-- elv_n60w060.tar
-
-#### N30–N60
-
-- elv_n30w150.tar
-- elv_n30w120.tar
-- elv_n30w090.tar
-- elv_n30w060.tar
-
-4. **Download (if using URLs)**
-
-   ```bash
-   ./scripts/20_download_merit_hydro.sh
-   ```
-
-5. **Unpack and discover**
+4. **Unpack and discover**
 
    ```bash
    ./scripts/30_unpack_and_discover.sh
    ```
 
-6. **Clip to Canada bbox**
+5. **Clip to Canada bbox**
 
    ```bash
    ./scripts/40_clip_canada.sh
    ```
 
-7. **COGify the clipped tiles**
+6. **COGify the clipped tiles**
 
    ```bash
    ./scripts/50_cogify.sh
    ```
 
-8. **Build VRT mosaic**
+7. **Build VRT mosaic**
 
    ```bash
    ./scripts/60_build_vrt.sh
    ```
 
-9. **Run the API**
+8. **Run the API**
 
    ```bash
    docker compose up --build
    ```
 
-10. **(Optional) Run Terracotta for tile visualization**
-
-    ```bash
-    docker compose up --build terracotta
-    ```
-
-11. **(Optional) Open the viewer**
-
-    - The repo includes a lightweight Leaflet viewer at `viewer/index.html`.
-    - Serve it with any static server, for example:
-
-      ```bash
-      python3 -m http.server 63783 -d viewer
-      ```
-
-    - Open: `http://localhost:63783/`
-
-12. **Test**
-
-    ```bash
-    curl "http://localhost:8000/health"
-    curl "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"
-    ./scripts/70_smoke_test.sh
-    ```
-
-## Manual download / URLs
-
-You **must** manually accept the MERIT-Hydro license and download rights. This repo does not automate the gate.
-
-### Option A: URL list workflow
-
-1. Create `data/urls.txt` from the example:
-   ```bash
-   cp data/urls.txt.example data/urls.txt
-   ```
-2. Paste **one URL per line** into `data/urls.txt`.
-3. Run:
-   ```bash
-   ./scripts/20_download_merit_hydro.sh
-   ```
-
-### Option B: manual archive workflow
-
-- After downloading with your browser or official tools, place the archives in:
-  - `data/raw/downloads/`
-- Then continue with:
-  ```bash
-  ./scripts/30_unpack_and_discover.sh
-  ```
+   and run `curl "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"`
 
 ## Script-by-script details
 
@@ -235,7 +169,7 @@ curl http://127.0.0.1:8080/datasets
 Example response:
 
 ```json
-{"datasets":[{"tile":"n40w060"}],"limit":100,"page":0}
+{ "datasets": [{ "tile": "n40w060" }], "limit": 100, "page": 0 }
 ```
 
 ### Tile URL template
@@ -256,9 +190,9 @@ The repo includes `viewer/index.html`, a simple Leaflet viewer with:
 
 ### Run it
 
-1) Start FastAPI on port 8000: `docker compose up --build`
-2) Start Terracotta on port 8080
-3) Serve the `viewer/` folder:
+1. Start FastAPI on port 8000: `docker compose up --build`
+2. Start Terracotta on port 8080
+3. Serve the `viewer/` folder:
 
 ```bash
 python3 -m http.server 63783 -d viewer

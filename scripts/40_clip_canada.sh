@@ -6,12 +6,21 @@ base_dir="$(cd "$(dirname "$0")/.." && pwd)"
 src_dir="$base_dir/data/raw/tifs"
 out_dir="$base_dir/data/canada/clipped"
 
-bbox_min_lon="${BBOX_MIN_LON:--141.0}"
+bbox_min_lon="${BBOX_MIN_LON:--80.0}"
 bbox_min_lat="${BBOX_MIN_LAT:-41.0}"
-bbox_max_lon="${BBOX_MAX_LON:--52.0}"
-bbox_max_lat="${BBOX_MAX_LAT:-84.0}"
+bbox_max_lon="${BBOX_MAX_LON:--55.0}"
+bbox_max_lat="${BBOX_MAX_LAT:-63.0}"
 
 parallel="${PARALLEL:-4}"
+
+cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)"
+warp_threads="ALL_CPUS"
+if [ "$parallel" -gt 1 ]; then
+  warp_threads=$((cpu_count / parallel))
+  if [ "$warp_threads" -lt 1 ]; then
+    warp_threads=1
+  fi
+fi
 
 mkdir -p "$out_dir"
 
@@ -28,10 +37,12 @@ process_one() {
 
   if [ -f "$out_tif" ]; then
     echo "Skipping existing output: $out_tif"
-    continue
+    return 0
   fi
 
-  nodata_val="$(gdalinfo "$in_tif" | awk -F'=' '/NoData Value=/{print $2; exit}')"
+  info="$(gdalinfo "$in_tif")"
+
+  nodata_val="$(printf '%s\n' "$info" | awk -F'=' '/NoData Value=/{print $2; exit}')"
   if [ -z "$nodata_val" ]; then
     nodata_val="-9999"
   fi
@@ -67,9 +78,9 @@ process_one() {
     fi
   fi
 
-  if gdalinfo "$in_tif" | grep -q 'EPSG","4326' || gdalinfo "$in_tif" | grep -q 'EPSG,4326' || gdalinfo "$in_tif" | grep -q 'EPSG:4326'; then
-    ul_line="$(gdalinfo "$in_tif" | awk '/Upper Left/ {print; exit}')"
-    lr_line="$(gdalinfo "$in_tif" | awk '/Lower Right/ {print; exit}')"
+  if printf '%s\n' "$info" | grep -q 'EPSG","4326' || printf '%s\n' "$info" | grep -q 'EPSG,4326' || printf '%s\n' "$info" | grep -q 'EPSG:4326'; then
+    ul_line="$(printf '%s\n' "$info" | awk '/Upper Left/ {print; exit}')"
+    lr_line="$(printf '%s\n' "$info" | awk '/Lower Right/ {print; exit}')"
     ul_lon="$(echo "$ul_line" | awk -F'[(),]' '{print $2}' | xargs)"
     ul_lat="$(echo "$ul_line" | awk -F'[(),]' '{print $3}' | xargs)"
     lr_lon="$(echo "$lr_line" | awk -F'[(),]' '{print $2}' | xargs)"
@@ -95,7 +106,7 @@ process_one() {
         -t_srs EPSG:4326 \
         -r near \
         -dstnodata "$nodata_val" \
-        -multi -wo NUM_THREADS=ALL_CPUS \
+        -multi -wo NUM_THREADS="$warp_threads" \
         "$in_tif" "$out_tif"
     fi
   else
@@ -105,16 +116,16 @@ process_one() {
       -t_srs EPSG:4326 \
       -r near \
       -dstnodata "$nodata_val" \
-      -multi -wo NUM_THREADS=ALL_CPUS \
+      -multi -wo NUM_THREADS="$warp_threads" \
       "$in_tif" "$out_tif"
   fi
 
   valid_percent="$(gdalinfo -stats "$out_tif" | awk -F'=' '/STATISTICS_VALID_PERCENT/{print $2; exit}')"
   if [ -n "$valid_percent" ]; then
-    vp_int="${valid_percent%.*}"
-    if [ "$vp_int" = "0" ]; then
+    if awk -v vp="$valid_percent" 'BEGIN{ if ((vp + 0) == 0) exit 0; else exit 1 }'; then
       echo "Clipped raster is empty (all nodata). Removing $out_tif"
       rm -f "$out_tif"
+      rm -f "$out_tif.aux.xml"
       return 0
     fi
   fi
