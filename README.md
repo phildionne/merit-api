@@ -1,4 +1,4 @@
-# MERIT-Hydro (MERIT DEM) Local Preprocessing + Docker API
+# MERIT-API
 
 This repo provides an end-to-end workflow to **manually download MERIT-Hydro data**, preprocess it locally with GDAL into **COGs + a VRT mosaic**, and run a **Docker-only FastAPI service** to query elevation by latitude/longitude.
 
@@ -7,17 +7,17 @@ This repo provides an end-to-end workflow to **manually download MERIT-Hydro dat
 ## What you get
 
 - Local preprocessing pipeline using GDAL
-- Output datasets:
-  - `data/canada/clipped/*.tif` (Canada bbox clips)
+- Output datasets (default bbox):
+  - `data/canada/clipped/*.tif` (bbox clips)
   - `data/canada/cog/*.tif` (COG-optimized GeoTIFFs)
   - `data/mosaic/canada.vrt` (VRT mosaic)
-- Docker-only API (no GDAL in container)
+- API
   - `GET /elevation?lat=<float>&lng=<float>`
   - `POST /elevation` with a batch payload
 
-## Default Canada BBox (EPSG:4326)
+## Default BBox (EPSG:4326)
 
-Used by the clip script, configurable via env vars:
+This BBbox is used by the clip script to reduce file size; configurable via env vars:
 
 - `BBOX_MIN_LON=-80.0`
 - `BBOX_MIN_LAT=41.0`
@@ -26,115 +26,78 @@ Used by the clip script, configurable via env vars:
 
 ## Quickstart
 
-1. **Install GDAL locally** (host machine)
+### 1. Install GDAL locally
 
-   - You need `gdalinfo`, `gdalwarp`, `gdal_translate`, `gdalbuildvrt` available in your `PATH`.
-   - macOS (Homebrew) example:
-     ```bash
-     brew install gdal
-     which gdalinfo gdalwarp gdal_translate gdalbuildvrt
-     gdalinfo --version
-     ```
+You need `gdalinfo`, `gdalwarp`, `gdal_translate`, `gdalbuildvrt` available in your `PATH`.
 
-2. **Prepare directories**
+```bash
+brew install gdal
+```
 
-   ```bash
-   ./scripts/check_deps.sh
-   ./scripts/prepare_dirs.sh
-   ```
+### 2. Prepare directories
 
-3. **Manual download step (required)**
+- Validates required tools and prints versions. Fails fast if missing tools.
+- Creates the full data directory layout under `data/`
 
-   - Register/accept MERIT-Hydro license and obtain download credentials
-   - Download this subset of the data (covers the default bbox -80 to -55 lon, 41 to 63 lat):
-     - N60–N90: elv_n60w090.tar, elv_n60w060.tar
-     - N30–N60: elv_n30w090.tar, elv_n30w060.tar
-   - Download the required archives and place them in `data/raw/downloads/`.
+```bash
+./scripts/check_deps.sh
+./scripts/prepare_dirs.sh
+```
 
-4. **Unpack and discover**
+### 3. Manual download step
 
-   ```bash
-   ./scripts/unpack_and_discover.sh
-   ```
+- Register/accept MERIT-Hydro license and obtain download credentials
+- Download this subset of the data (covers the default bbox -80 to -55 lon, 41 to 63 lat):
+  - N60–N90: `elv_n60w090.tar`, `elv_n60w060.tar`
+  - N30–N60: `elv_n30w090.tar`, `elv_n30w060.tar`
+- Download the required archives and place them in `data/raw/downloads/`
 
-5. **Clip to Canada bbox**
+### 4. Unpack and discover
 
-   ```bash
-   ./scripts/clip_canada.sh
-   ```
+- Unpacks `*.zip` and `*.tar.gz`/`*.tgz` into `data/raw/extracted/`
+- Finds all `.tif`/`.tiff` and symlinks them into `data/raw/tifs/`
 
-6. **COGify the clipped tiles**
+```bash
+./scripts/unpack_and_discover.sh
+```
 
-   ```bash
-   ./scripts/cogify.sh
-   ```
+### 5. Clip to bbox
 
-7. **Build VRT mosaic**
+- Clips each input raster to the configured bbox
+- Reprojects to EPSG:4326 if needed
+- Deletes fully nodata outputs (empty clips)
 
-   ```bash
-   ./scripts/build_vrt.sh
-   ```
+```bash
+./scripts/clip_canada.sh
+```
 
-8. **Run the API**
+### 6. COGify the clipped tiles
 
-   ```bash
-   docker compose up --build
-   ```
+- Converts each clipped raster into a Cloud-Optimized GeoTIFF (COG)
+- Skips if output is newer than input
 
-   and run `curl "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"`
+```bash
+./scripts/cogify.sh
+```
 
-## Script-by-script details
+### 7. Build VRT mosaic
 
-### `scripts/check_deps.sh`
+Builds `data/mosaic/canada.vrt` from all COGs using `gdalbuildvrt`
 
-Validates required tools and prints versions. Fails fast if missing tools.
+```bash
+./scripts/build_vrt.sh
+```
 
-### `scripts/prepare_dirs.sh`
+### 8. Run the API
 
-Creates the full data directory layout under `data/` and writes `data/urls.txt.example` if missing.
+This exposes both the API and a terracota tile server:
 
-### Manual download / placement
+```bash
+docker compose up --build
+```
 
-- Register/accept the MERIT-Hydro license and obtain the download URLs (or archive files) you need.
-- Place your `.tar` files into `data/raw/downloads/`, or list the URLs in `data/urls.txt` so you can fetch them with your preferred downloader.
-- The archives should cover the bounding box you care about (e.g., `elv_n30w090.tar`, `elv_n30w060.tar`, `elv_n60w090.tar`, `elv_n60w060.tar` for the default bbox).
-
-### `scripts/unpack_and_discover.sh`
-
-- Unpacks `*.zip` and `*.tar.gz`/`*.tgz` into `data/raw/extracted/`.
-- Finds all `.tif`/`.tiff` and symlinks them into `data/raw/tifs/`.
-- Prints a summary (count + `gdalinfo` lines for up to 5 rasters).
-- Idempotent: if `data/raw/extracted/` already has contents, it **skips extraction** unless `FORCE=1`.
-
-### `scripts/clip_canada.sh`
-
-- Clips each input raster to the Canada bbox using `gdalwarp`.
-- Reprojects to EPSG:4326 if needed.
-- Uses nearest-neighbor resampling to preserve the source resolution.
-- Sets a consistent `-dstnodata` (reads from source, or uses `-9999` if missing).
-- Deletes fully nodata outputs (empty clips).
-- Skips if output is newer than input.
-
-### `scripts/cogify.sh`
-
-- Converts each clipped raster into a Cloud-Optimized GeoTIFF (COG) using `gdal_translate -of COG`.
-- Uses:
-  - `COMPRESS=DEFLATE` with `LEVEL=9`
-  - `BLOCKSIZE=512`
-  - `OVERVIEWS=AUTO` with nearest resampling
-- Skips if output is newer than input.
-
-### `scripts/build_vrt.sh`
-
-- Builds `data/mosaic/canada.vrt` from all COGs using `gdalbuildvrt`.
-- Fails if no COGs exist.
-- Validates the VRT with `gdalinfo`.
-
-### `scripts/smoke_test.sh`
-
-- Requires the Docker API to be running.
-- Calls `/health` and `/elevation` for Québec City.
-- Validates JSON keys (uses `jq` if available, otherwise `grep`).
+- API: `curl "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"`
+- Terracota: `curl ...`
 
 ## API behavior
 
@@ -209,14 +172,15 @@ If you change the Terracotta port or dataset key, edit `viewer/index.html`.
 
 ### Nodata / empty clips
 
-- If a clipped raster is fully nodata, it is deleted automatically. This can happen if your bbox does not intersect a tile.
+If a clipped raster is fully nodata, it is deleted automatically. This can happen if your bbox does not intersect a tile.
 
 ### VRT references missing files
 
-- The VRT references the COG file paths at build time. If you move or delete COGs, or the API runs in Docker with `/data` mounted, rebuild the VRT using:
-  ```bash
-  ./scripts/build_vrt.sh
-  ```
+The VRT references the COG file paths at build time. If you move or delete COGs, or the API runs in Docker with `/data` mounted, rebuild the VRT using:
+
+```bash
+./scripts/build_vrt.sh
+```
 
 ## Data size & storage
 
