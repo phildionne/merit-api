@@ -164,6 +164,56 @@ Open: `http://localhost:63783/`
 
 If you change the Terracotta port or dataset key, edit `viewer/index.html`.
 
+## Hypsometric overlay workflow (pre-colored)
+
+This repo can generate a pre-colored elevation overlay (0–1000m ramp) and serve it via Terracotta, with a Leaflet opacity slider.
+
+### 1. Generate overlays (pre-colored COGs)
+
+```bash
+./scripts/make_hypsometric_overlay.sh
+```
+
+This writes files like:
+
+- `data/overlays/n40w060_elvhypsometric.tif`
+
+### 2. Build band VRTs for RGB serving
+
+Terracotta's `/rgb` endpoint expects **three datasets** (r/g/b). We create lightweight VRTs that expose the overlay's R, G, B bands as separate datasets, both per-tile and as a mosaic dataset.
+
+```bash
+./scripts/build_overlay_band_vrts.sh
+```
+
+Outputs (examples):
+
+- Per-tile: `data/overlays/n40w060_elvhypsometric_r.vrt`, `..._g.vrt`, `..._b.vrt`
+- Mosaic: `data/overlays/mosaic_elvhypsometric_r.vrt`, `..._g.vrt`, `..._b.vrt`
+
+### 3. Serve overlays with Terracotta
+
+Terracotta is configured to serve the per-tile and mosaic band VRTs:
+
+```bash
+docker compose up --build terracotta
+```
+
+### 4. Viewer overlay + opacity slider
+
+The viewer requests the overlay via the mosaic dataset:
+
+```
+http://127.0.0.1:8080/rgb/mosaic/elvhypsometric/{z}/{x}/{y}.png?r=r&g=g&b=b
+```
+
+Use the slider in `viewer/index.html` to adjust overlay opacity.
+
+### Notes
+
+- Terracotta key values **cannot contain underscores**, so the overlay layer key is `elvhypsometric` (not `elv_hypsometric`).
+- If you change the overlay name or ramp, regenerate the overlays and rebuild the mosaic VRTs.
+
 ## Troubleshooting
 
 ### GDAL / PROJ issues

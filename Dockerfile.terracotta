@@ -13,4 +13,4 @@ RUN pip install --no-cache-dir terracotta
 
 ENV PORT=8080
 
-CMD ["terracotta", "serve", "-r", "/data/canada/cog/{tile}_elv.tif", "--port", "8080", "--allow-all-ips"]
+CMD ["terracotta", "serve", "-r", "/data/overlays/{tile}_{layer}_{band}.vrt", "--port", "8080", "--allow-all-ips"]
