@@ -16,5 +16,8 @@ COPY api /app/api
 
 ENV PORT=8000
 ENV DEM_PATH=/data/mosaic/canada.vrt
+ENV WEB_CONCURRENCY=2
+ENV LOG_LEVEL=info
+ENV PYTHONUNBUFFERED=1
 
-CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "gunicorn -k uvicorn.workers.UvicornWorker -w ${WEB_CONCURRENCY:-2} -b 0.0.0.0:${PORT:-8000} --log-level ${LOG_LEVEL:-info} api.app:app"]

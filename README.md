@@ -112,6 +112,58 @@ docker compose up --build
 
 Sampling uses **nearest-neighbor** (no bilinear smoothing) for stability and speed.
 
+## Authentication
+
+All elevation endpoints require an API key via the `X-API-Key` header. The server will fail to start if `API_KEY` is not set.
+
+Example:
+
+```bash
+curl -H "X-API-Key: $API_KEY" \
+  "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"
+```
+
+## Production configuration (API)
+
+Required environment variables:
+
+- `API_KEY` (required): shared secret for `X-API-Key`
+- `DEM_PATH` (required): path to the VRT mosaic (default `/data/mosaic/canada.vrt`)
+
+Optional:
+
+- `ALLOWED_ORIGINS` (default `*`): comma-separated list of origins for CORS
+- `MAX_BATCH` (default `1000`): max points in a batch request
+- `WEB_CONCURRENCY` (default `2`): gunicorn worker count
+- `LOG_LEVEL` (default `info`)
+
+## Production deployment (Docker)
+
+1. Build the image:
+
+```bash
+docker build -f Dockerfile.api -t merit-api .
+```
+
+2. Run the container (mount the data folder read-only):
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e API_KEY="your-secret-key" \
+  -e DEM_PATH="/data/mosaic/canada.vrt" \
+  -e ALLOWED_ORIGINS="https://your-domain.com" \
+  -e WEB_CONCURRENCY="2" \
+  -v "$(pwd)/data:/data:ro" \
+  merit-api
+```
+
+3. Verify:
+
+```bash
+curl -H "X-API-Key: your-secret-key" \
+  "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"
+```
+
 ## Terracotta usage (optional visualization)
 
 Terracotta serves tiles from the COGs for quick visualization. It does **not** replace the FastAPI elevation API.
