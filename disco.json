@@ -1,0 +1,14 @@
+{
+  "services": {
+    "web": {
+      "port": 8000,
+      "dockerfile": "Dockerfile.api",
+      "volumes": [
+        {
+          "name": "dem-data",
+          "path": "/data"
+        }
+      ]
+    }
+  }
+}
