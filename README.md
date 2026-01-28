@@ -175,7 +175,7 @@ Disco volumes are created on first deploy based on `disco.json`. After the first
 1. Deploy once to create the volume:
 
 ```bash
-disco deploy --project merit-api --disco <your-disco>
+disco deploy --project <your-project> --disco <your-disco>
 ```
 
 2. Stage just the required paths and create a tarball:
@@ -191,7 +191,7 @@ tar -C /tmp -czf /tmp/merit-disco-data.tgz merit-disco-data
 
 ```bash
 disco volumes:import \
-  --project merit-api \
+  --project <your-project> \
   --disco <your-disco> \
   --volume dem-data \
   --input /tmp/merit-disco-data.tgz
