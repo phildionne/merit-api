@@ -5,6 +5,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field, model_validator
+from rasterio.errors import RasterioIOError
 
 from . import dem
 
@@ -58,12 +59,25 @@ class BatchRequest(BaseModel):
 def startup_checks():
     if not API_KEY:
         raise RuntimeError("API_KEY must be set for the API to start")
-    dem._open_dataset()
+
+
+def ensure_dataset_available() -> None:
+    try:
+        dem._open_dataset()
+    except RasterioIOError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="DEM dataset not available",
+        )
 
 
 @app.get("/health")
 def health():
-    return {"ok": True}
+    try:
+        ensure_dataset_available()
+        return {"ok": True}
+    except HTTPException:
+        return {"ok": False, "dem_ready": False}
 
 
 @app.get("/elevation", dependencies=[Depends(require_api_key)])
@@ -71,6 +85,7 @@ def elevation_get(
     lat: float = Query(..., ge=-90, le=90),
     lng: float = Query(..., ge=-180, le=180),
 ):
+    ensure_dataset_available()
     try:
         return dem.sample_point(lat, lng, allow_oob=False)
     except ValueError as exc:
@@ -79,5 +94,6 @@ def elevation_get(
 
 @app.post("/elevation", dependencies=[Depends(require_api_key)])
 def elevation_post(payload: BatchRequest):
+    ensure_dataset_available()
     results = [dem.sample_point(p.lat, p.lng, allow_oob=True) for p in payload.points]
     return {"points": results}
