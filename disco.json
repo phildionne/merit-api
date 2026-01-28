@@ -1,15 +1,15 @@
 {
-  "version": 1,
   "services": {
     "web": {
-      "port": 8000,
       "dockerfile": "Dockerfile.api",
+      "port": 8000,
       "volumes": [
         {
-          "name": "dem-data",
-          "path": "/data"
+          "destinationPath": "/data",
+          "name": "dem-data"
         }
       ]
     }
-  }
+  },
+  "version": 1
 }
