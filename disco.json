@@ -12,7 +12,7 @@
       "volumes": [
         {
           "name": "dem-data",
-          "path": "/data"
+          "destinationPath": "/data"
         }
       ]
     }
