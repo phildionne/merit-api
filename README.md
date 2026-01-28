@@ -178,23 +178,11 @@ Disco volumes are created on first deploy based on `disco.json`. After the first
 disco deploy --project <your-project> --disco <your-disco>
 ```
 
-2. Stage just the required paths and create a tarball:
+2. Import just the required paths into the `dem-data` volume:
 
 ```bash
-mkdir -p /tmp/merit-disco-data/mosaic /tmp/merit-disco-data/canada
-cp -R ./data/mosaic/canada.vrt /tmp/merit-disco-data/mosaic/
-cp -R ./data/canada /tmp/merit-disco-data/
-tar -C /tmp -czf /tmp/merit-disco-data.tgz merit-disco-data
-```
-
-3. Import into the `dem-data` volume:
-
-```bash
-disco volumes:import \
-  --project <your-project> \
-  --disco <your-disco> \
-  --volume dem-data \
-  --input /tmp/merit-disco-data.tgz
+DISCO=<your-disco> PROJECT=<your-project> \
+  ./scripts/disco_import_dem.sh
 ```
 
 ### Required env vars
