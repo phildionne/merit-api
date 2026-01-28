@@ -137,7 +137,7 @@ Optional:
 - `WEB_CONCURRENCY` (default `2`): gunicorn worker count
 - `LOG_LEVEL` (default `info`)
 
-## Production deployment (Docker)
+## Production deployment (Local)
 
 1. Build the image:
 
@@ -163,6 +163,46 @@ docker run --rm -p 8000:8000 \
 curl -H "X-API-Key: your-secret-key" \
   "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"
 ```
+
+## Production deployment (Disco)
+
+Disco reads `disco.json` at the repo root and builds the API using `Dockerfile.api`.
+
+### One-time DEM data import
+
+Disco volumes are created on first deploy based on `disco.json`. After the first deploy, import only the needed DEM files.
+
+1. Deploy once to create the volume:
+
+```bash
+disco deploy --project merit-api --disco <your-disco>
+```
+
+2. Stage just the required paths and create a tarball:
+
+```bash
+mkdir -p /tmp/merit-disco-data/mosaic /tmp/merit-disco-data/canada
+cp -R ./data/mosaic/canada.vrt /tmp/merit-disco-data/mosaic/
+cp -R ./data/canada /tmp/merit-disco-data/
+tar -C /tmp -czf /tmp/merit-disco-data.tgz merit-disco-data
+```
+
+3. Import into the `dem-data` volume:
+
+```bash
+disco volumes:import \
+  --project merit-api \
+  --disco <your-disco> \
+  --volume dem-data \
+  --input /tmp/merit-disco-data.tgz
+```
+
+### Required env vars
+
+Set these in your Disco project environment:
+
+- `API_KEY` (required)
+- `DEM_PATH=/data/mosaic/canada.vrt`
 
 ## Terracotta usage (optional visualization)
 
@@ -194,9 +234,9 @@ Once you know a dataset key (e.g. `n40w060`), the tile URL is:
 http://127.0.0.1:8080/singleband/n40w060/{z}/{x}/{y}.png
 ```
 
-## Viewer (Leaflet)
+## Viewer
 
-The repo includes `viewer/index.html`, a simple Leaflet viewer with:
+The repo includes `viewer/index.html`, a simple static viewer with:
 
 - A basemap for context
 - The Terracotta elevation tile layer
@@ -214,11 +254,15 @@ python3 -m http.server 63783 -d viewer
 
 Open: `http://localhost:63783/`
 
-If you change the Terracotta port or dataset key, edit `viewer/index.html`.
-
 ## Hypsometric overlay workflow (pre-colored)
 
-This repo can generate a pre-colored elevation overlay (0–1000m ramp) and serve it via Terracotta, with a Leaflet opacity slider.
+This repo can generate a pre-colored elevation overlay (0–1000m ramp) and serve it via Terracotta, with a Leaflet opacity slider in the viewer.
+
+The viewer requests the overlay via the mosaic dataset:
+
+```
+http://127.0.0.1:8080/rgb/mosaic/elvhypsometric/{z}/{x}/{y}.png?r=r&g=g&b=b
+```
 
 ### 1. Generate overlays (pre-colored COGs)
 
@@ -250,16 +294,6 @@ Terracotta is configured to serve the per-tile and mosaic band VRTs:
 ```bash
 docker compose up --build terracotta
 ```
-
-### 4. Viewer overlay + opacity slider
-
-The viewer requests the overlay via the mosaic dataset:
-
-```
-http://127.0.0.1:8080/rgb/mosaic/elvhypsometric/{z}/{x}/{y}.png?r=r&g=g&b=b
-```
-
-Use the slider in `viewer/index.html` to adjust overlay opacity.
 
 ### Notes
 
