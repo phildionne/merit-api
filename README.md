@@ -1,6 +1,6 @@
 # MERIT-API
 
-This repo provides an end-to-end workflow to **manually download MERIT-Hydro data**, preprocess it locally with GDAL into **COGs + a VRT mosaic**, and run a **Docker-only FastAPI service** to query elevation by latitude/longitude.
+This repo provides an end-to-end workflow to **manually download MERIT-Hydro data**, preprocess it locally with GDAL into **COGs + VRT mosaics**, and run a **Docker-only FastAPI service** to query elevation and river width by latitude/longitude.
 
 **Important:** MERIT-Hydro downloads require a license/registration. This project **does not** bypass that gate. You must manually accept the license and supply your own download URLs or archives.
 
@@ -14,6 +14,7 @@ This repo provides an end-to-end workflow to **manually download MERIT-Hydro dat
 - API
   - `GET /elevation?lat=<float>&lng=<float>`
   - `POST /elevation` with a batch payload
+  - `POST /river-width` with an ID-based batch payload
 
 ## Default BBox (EPSG:4326)
 
@@ -96,7 +97,7 @@ This exposes both the API and a terracota tile server:
 docker compose up --build
 ```
 
-- API: `curl "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"`
+- API: `curl -H "X-API-Key: $API_KEY" "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"`
 - Terracota: `curl ...`
 
 ## API behavior
@@ -109,12 +110,22 @@ docker compose up --build
   - Accepts `{ "points": [ {"lat":..,"lng":..}, ... ] }`.
   - Returns `{ "points": [ ... ] }` with per-point results.
   - If a point is out of bounds, the response includes `"error": "out_of_bounds"` for that point.
+- **POST `/river-width`**:
+  - Accepts `{ "points": [ {"id":"p1","lat":..,"lng":..}, ... ] }`.
+  - Returns `{ "points": [ ... ] }` with one result per input point in the same order.
+  - Each result includes `id`, `lat`, `lng`, `wth_raw`, and `nodata`.
+  - If a point is out of bounds, the response includes `"error": "out_of_bounds"` for that point.
+  - `wth_raw` semantics:
+    - `> 0`: centerline river width in meters
+    - `-1`: non-centerline water pixel
+    - `0`: non-water pixel
+    - `-9999`: undefined/ocean nodata
 
 Sampling uses **nearest-neighbor** (no bilinear smoothing) for stability and speed.
 
 ## Authentication
 
-All elevation endpoints require an API key via the `X-API-Key` header. The server will fail to start if `API_KEY` is not set.
+All data endpoints require an API key via the `X-API-Key` header. The server will fail to start if `API_KEY` is not set.
 
 Example:
 
@@ -129,6 +140,7 @@ Required environment variables:
 
 - `API_KEY` (required): shared secret for `X-API-Key`
 - `DEM_PATH` (required): path to the VRT mosaic (default `/data/mosaic/canada.vrt`)
+- `WTH_PATH` (required for `/river-width`): path to the width VRT mosaic (default `/data/mosaic/canada_wth.vrt`)
 
 Optional:
 
@@ -162,6 +174,11 @@ docker run --rm -p 8000:8000 \
 ```bash
 curl -H "X-API-Key: your-secret-key" \
   "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"
+
+curl -H "X-API-Key: your-secret-key" \
+  -H "Content-Type: application/json" \
+  -d '{"points":[{"id":"p1","lat":46.8139,"lng":-71.2080}]}' \
+  "http://localhost:8000/river-width"
 ```
 
 ## Production deployment (Disco)
@@ -191,6 +208,7 @@ Set these in your Disco project environment:
 
 - `API_KEY` (required)
 - `DEM_PATH=/data/mosaic/canada.vrt`
+- `WTH_PATH=/data/mosaic/canada_wth.vrt` (required for `/river-width`)
 
 ## Terracotta usage (optional visualization)
 

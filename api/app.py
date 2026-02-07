@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Union
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,9 +7,9 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field, model_validator
 from rasterio.errors import RasterioIOError
 
-from . import dem
+from . import dem, wth
 
-app = FastAPI(title="MERIT-Hydro Elevation API")
+app = FastAPI(title="MERIT-Hydro API")
 
 API_KEY = (os.getenv("API_KEY") or "").strip()
 MAX_BATCH = int(os.getenv("MAX_BATCH", "1000"))
@@ -55,6 +55,20 @@ class BatchRequest(BaseModel):
         return self
 
 
+class PointWithId(Point):
+    id: Union[str, int] = Field(..., description="Client-provided point identifier")
+
+
+class RiverWidthBatchRequest(BaseModel):
+    points: List[PointWithId]
+
+    @model_validator(mode="after")
+    def validate_size(self):
+        if len(self.points) > MAX_BATCH:
+            raise ValueError(f"Too many points; max is {MAX_BATCH}")
+        return self
+
+
 @app.on_event("startup")
 def startup_checks():
     if not API_KEY:
@@ -68,6 +82,16 @@ def ensure_dataset_available() -> None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="DEM dataset not available",
+        )
+
+
+def ensure_wth_dataset_available() -> None:
+    try:
+        wth._open_dataset()
+    except RasterioIOError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="WTH dataset not available",
         )
 
 
@@ -96,4 +120,15 @@ def elevation_get(
 def elevation_post(payload: BatchRequest):
     ensure_dataset_available()
     results = [dem.sample_point(p.lat, p.lng, allow_oob=True) for p in payload.points]
+    return {"points": results}
+
+
+@app.post("/river-width", dependencies=[Depends(require_api_key)])
+def river_width_post(payload: RiverWidthBatchRequest):
+    ensure_wth_dataset_available()
+    results = []
+    for p in payload.points:
+        sampled = wth.sample_point(p.lat, p.lng, allow_oob=True)
+        sampled["id"] = p.id
+        results.append(sampled)
     return {"points": results}
