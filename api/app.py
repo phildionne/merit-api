@@ -59,7 +59,7 @@ class PointWithId(Point):
     id: Union[str, int] = Field(..., description="Client-provided point identifier")
 
 
-class RiverWidthBatchRequest(BaseModel):
+class WidthBatchRequest(BaseModel):
     points: List[PointWithId]
 
     @model_validator(mode="after")
@@ -123,8 +123,8 @@ def elevation_post(payload: BatchRequest):
     return {"points": results}
 
 
-@app.post("/river-width", dependencies=[Depends(require_api_key)])
-def river_width_post(payload: RiverWidthBatchRequest):
+@app.post("/width", dependencies=[Depends(require_api_key)])
+def width_post(payload: WidthBatchRequest):
     ensure_wth_dataset_available()
     results = []
     for p in payload.points:

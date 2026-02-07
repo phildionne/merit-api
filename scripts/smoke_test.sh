@@ -8,7 +8,7 @@ api_key="${SMOKE_API_KEY:-${API_KEY:-}}"
 
 health_url="$api_url/health"
 elev_url="$api_url/elevation?lat=46.8139&lng=-71.2080"
-river_width_url="$api_url/river-width"
+river_width_url="$api_url/width"
 river_width_payload='{"points":[{"id":"p1","lat":46.8139,"lng":-71.2080},{"id":"p2","lat":0.0,"lng":0.0}]}'
 
 if ! command -v curl >/dev/null 2>&1; then
@@ -48,7 +48,7 @@ else
   echo "$elev_resp" | grep -q '"source"'
 fi
 
-echo "Checking /river-width"
+echo "Checking /width"
 river_width_resp="$(curl -sf \
   -H "X-API-Key: $api_key" \
   -H "Content-Type: application/json" \
