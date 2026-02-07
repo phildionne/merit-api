@@ -3,8 +3,15 @@ set -euo pipefail
 
 base_dir="$(cd "$(dirname "$0")/.." && pwd)"
 
-cog_dir="$base_dir/data/canada/cog"
-output_vrt="$base_dir/data/mosaic/canada.vrt"
+merit_var="${MERIT_VAR:-}"
+if [[ "$merit_var" != "elv" && "$merit_var" != "wth" ]]; then
+  echo "MERIT_VAR must be set to 'elv' or 'wth'" >&2
+  echo "Example: MERIT_VAR=elv ./scripts/build_vrt.sh" >&2
+  exit 1
+fi
+
+cog_dir="$base_dir/data/canada/$merit_var/cog"
+output_vrt="$base_dir/data/mosaic/canada_${merit_var}.vrt"
 
 shopt -s nullglob
 cogs=("$cog_dir"/*.tif "$cog_dir"/*.tiff)

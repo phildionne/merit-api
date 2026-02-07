@@ -8,13 +8,14 @@ This repo provides an end-to-end workflow to **manually download MERIT-Hydro dat
 
 - Local preprocessing pipeline using GDAL
 - Output datasets (default bbox):
-  - `data/canada/clipped/*.tif` (bbox clips)
-  - `data/canada/cog/*.tif` (COG-optimized GeoTIFFs)
-  - `data/mosaic/canada.vrt` (VRT mosaic)
+  - `data/canada/elv/cog/*.tif` (elevation COGs)
+  - `data/canada/wth/cog/*.tif` (width COGs)
+  - `data/mosaic/canada_elv.vrt` (elevation VRT mosaic)
+  - `data/mosaic/canada_wth.vrt` (width VRT mosaic)
 - API
   - `GET /elevation?lat=<float>&lng=<float>`
   - `POST /elevation` with a batch payload
-  - `POST /river-width` with an ID-based batch payload
+  - `POST /width` with an ID-based batch payload
 
 ## Default BBox (EPSG:4326)
 
@@ -39,68 +40,81 @@ brew install gdal
 
 - Validates required tools and prints versions. Fails fast if missing tools.
 - Creates the full data directory layout under `data/`
+- Creates variable URL templates:
+  - `data/raw/urls.elv.txt.example`
+  - `data/raw/urls.wth.txt.example`
 
 ```bash
 ./scripts/check_deps.sh
 ./scripts/prepare_dirs.sh
 ```
 
-### 3. Manual download step
+### 3. Migrate existing local elevation data (one-time)
+
+If you already have a working elevation dataset in legacy paths (`data/canada/cog`, `data/mosaic/canada.vrt`), migrate it without re-downloading or reprocessing:
+
+```bash
+./scripts/migrate_data_layout.sh
+```
+
+This only moves files and rewrites VRT source paths; it does not run clip/COG/VRT generation.
+
+### 4. Manual download step
 
 - Register/accept MERIT-Hydro license and obtain download credentials
-- Download this subset of the data (covers the default bbox -80 to -55 lon, 41 to 63 lat):
+- Download MERIT archives into `data/raw/downloads/`.
+- Elevation examples (covers the default bbox -80 to -55 lon, 41 to 63 lat):
   - N60–N90: `elv_n60w090.tar`, `elv_n60w060.tar`
   - N30–N60: `elv_n30w090.tar`, `elv_n30w060.tar`
-- Download the required archives and place them in `data/raw/downloads/`
+- Width archives should follow the same MERIT naming convention with `_wth`.
 
-### 4. Unpack and discover
+### 5. Unpack and discover
 
-- Unpacks `*.zip` and `*.tar.gz`/`*.tgz` into `data/raw/extracted/`
-- Finds all `.tif`/`.tiff` and symlinks them into `data/raw/tifs/`
+- Unpacks archives into shared `data/raw/extracted/`.
+- Finds `.tif`/`.tiff` and symlinks them into shared `data/raw/tifs/`.
+- Applies a filename-based bbox prefilter so obvious non-intersecting tiles are not linked for downstream steps.
 
 ```bash
 ./scripts/unpack_and_discover.sh
 ```
 
-### 5. Clip to bbox
+### 6. Clip to bbox by variable
 
 - Clips each input raster to the configured bbox
 - Reprojects to EPSG:4326 if needed
 - Deletes fully nodata outputs (empty clips)
 
 ```bash
-./scripts/clip_canada.sh
+MERIT_VAR=elv ./scripts/clip_canada.sh
+MERIT_VAR=wth ./scripts/clip_canada.sh
 ```
 
-### 6. COGify the clipped tiles
+### 7. COGify the clipped tiles by variable
 
 - Converts each clipped raster into a Cloud-Optimized GeoTIFF (COG)
 - Skips if output is newer than input
 
 ```bash
-./scripts/cogify.sh
+MERIT_VAR=elv ./scripts/cogify.sh
+MERIT_VAR=wth ./scripts/cogify.sh
 ```
 
-### 7. Build VRT mosaic
+### 8. Build VRT mosaics by variable
 
-Builds `data/mosaic/canada.vrt` from all COGs using `gdalbuildvrt`
+Builds variable-specific mosaics from COGs using `gdalbuildvrt`:
 
 ```bash
-./scripts/build_vrt.sh
+MERIT_VAR=elv ./scripts/build_vrt.sh
+MERIT_VAR=wth ./scripts/build_vrt.sh
 ```
 
-### 8. Run the API
+### 9. Run the API
 
 This exposes both the API and a terracota tile server:
 
 ```bash
 docker compose up --build
 ```
-
-- API: `curl -H "X-API-Key: $API_KEY" "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"`
-- Terracota: `curl ...`
-
-## API behavior
 
 - **GET `/health`** returns `{ "ok": true }`.
 - **GET `/elevation?lat=&lng=`**:
@@ -110,7 +124,7 @@ docker compose up --build
   - Accepts `{ "points": [ {"lat":..,"lng":..}, ... ] }`.
   - Returns `{ "points": [ ... ] }` with per-point results.
   - If a point is out of bounds, the response includes `"error": "out_of_bounds"` for that point.
-- **POST `/river-width`**:
+- **POST `/width`**:
   - Accepts `{ "points": [ {"id":"p1","lat":..,"lng":..}, ... ] }`.
   - Returns `{ "points": [ ... ] }` with one result per input point in the same order.
   - Each result includes `id`, `lat`, `lng`, `wth_raw`, and `nodata`.
@@ -123,6 +137,20 @@ docker compose up --build
 
 Sampling uses **nearest-neighbor** (no bilinear smoothing) for stability and speed.
 
+### curl examples
+
+```bash
+# Elevation (single point)
+curl -H "X-API-Key: dev-local-key" \
+  "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"
+
+# Width (batch with IDs)
+curl -H "X-API-Key: dev-local-key" \
+  -H "Content-Type: application/json" \
+  -d '{"points":[{"id":"p1","lat":46.8139,"lng":-71.2080},{"id":"p2","lat":46.90,"lng":-71.10}]}' \
+  "http://localhost:8000/width"
+```
+
 ## Authentication
 
 All data endpoints require an API key via the `X-API-Key` header. The server will fail to start if `API_KEY` is not set.
@@ -130,7 +158,7 @@ All data endpoints require an API key via the `X-API-Key` header. The server wil
 Example:
 
 ```bash
-curl -H "X-API-Key: $API_KEY" \
+curl -H "X-API-Key: dev-local-key" \
   "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"
 ```
 
@@ -139,8 +167,8 @@ curl -H "X-API-Key: $API_KEY" \
 Required environment variables:
 
 - `API_KEY` (required): shared secret for `X-API-Key`
-- `DEM_PATH` (required): path to the VRT mosaic (default `/data/mosaic/canada.vrt`)
-- `WTH_PATH` (required for `/river-width`): path to the width VRT mosaic (default `/data/mosaic/canada_wth.vrt`)
+- `DEM_PATH` (required): path to the elevation VRT mosaic (default `/data/mosaic/canada_elv.vrt`)
+- `WTH_PATH` (required for `/width`): path to the width VRT mosaic (default `/data/mosaic/canada_wth.vrt`)
 
 Optional:
 
@@ -162,7 +190,8 @@ docker build -f Dockerfile.api -t merit-api .
 ```bash
 docker run --rm -p 8000:8000 \
   -e API_KEY="your-secret-key" \
-  -e DEM_PATH="/data/mosaic/canada.vrt" \
+  -e DEM_PATH="/data/mosaic/canada_elv.vrt" \
+  -e WTH_PATH="/data/mosaic/canada_wth.vrt" \
   -e ALLOWED_ORIGINS="https://your-domain.com" \
   -e WEB_CONCURRENCY="2" \
   -v "$(pwd)/data:/data:ro" \
@@ -178,16 +207,16 @@ curl -H "X-API-Key: your-secret-key" \
 curl -H "X-API-Key: your-secret-key" \
   -H "Content-Type: application/json" \
   -d '{"points":[{"id":"p1","lat":46.8139,"lng":-71.2080}]}' \
-  "http://localhost:8000/river-width"
+  "http://localhost:8000/width"
 ```
 
 ## Production deployment (Disco)
 
 Disco reads `disco.json` at the repo root and builds the API using `Dockerfile.api`.
 
-### One-time DEM data import
+### One-time MERIT data import
 
-Disco volumes are created on first deploy based on `disco.json`. After the first deploy, import only the needed DEM files.
+Disco volumes are created on first deploy based on `disco.json`. After the first deploy, import only the needed MERIT variable files.
 
 1. Deploy once to create the volume:
 
@@ -195,11 +224,11 @@ Disco volumes are created on first deploy based on `disco.json`. After the first
 disco deploy --project <your-project> --disco <your-disco>
 ```
 
-2. Import just the required paths into the `dem-data` volume:
+2. Import selected variable datasets into the `dem-data` volume:
 
 ```bash
-DISCO=<your-disco> PROJECT=<your-project> \
-  ./scripts/disco_import_dem.sh
+DISCO=<your-disco> PROJECT=<your-project> INCLUDE_VARS=elv,wth \
+  ./scripts/disco_import_data.sh
 ```
 
 ### Required env vars
@@ -207,8 +236,8 @@ DISCO=<your-disco> PROJECT=<your-project> \
 Set these in your Disco project environment:
 
 - `API_KEY` (required)
-- `DEM_PATH=/data/mosaic/canada.vrt`
-- `WTH_PATH=/data/mosaic/canada_wth.vrt` (required for `/river-width`)
+- `DEM_PATH=/data/mosaic/canada_elv.vrt`
+- `WTH_PATH=/data/mosaic/canada_wth.vrt` (required for `/width`)
 
 ## Terracotta usage (optional visualization)
 
@@ -321,7 +350,7 @@ If a clipped raster is fully nodata, it is deleted automatically. This can happe
 The VRT references the COG file paths at build time. If you move or delete COGs, or the API runs in Docker with `/data` mounted, rebuild the VRT using:
 
 ```bash
-./scripts/build_vrt.sh
+MERIT_VAR=elv ./scripts/build_vrt.sh
 ```
 
 ## Data size & storage
@@ -333,10 +362,25 @@ MERIT-Hydro tiles can be large. The workflow stores:
 - Clipped tiles
 - COGs
 
-After you validate your VRT and API, you can consider deleting `data/raw/extracted` and `data/canada/clipped` to save space, keeping only:
+After you validate your VRTs and API, you can consider deleting intermediate clips to save space, keeping only:
 
-- `data/canada/cog/`
-- `data/mosaic/canada.vrt`
+- `data/canada/elv/cog/`
+- `data/canada/wth/cog/`
+- `data/mosaic/canada_elv.vrt`
+- `data/mosaic/canada_wth.vrt`
+
+Use this helper to remove intermediate files in one step:
+
+```bash
+./scripts/cleanup_intermediate_data.sh
+```
+
+It removes:
+
+- `data/raw/extracted/*`
+- `data/raw/tifs/*`
+- `data/canada/elv/clipped/*`
+- `data/canada/wth/clipped/*`
 
 ## Next steps
 

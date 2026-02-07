@@ -3,8 +3,15 @@ set -euo pipefail
 
 base_dir="$(cd "$(dirname "$0")/.." && pwd)"
 
-src_dir="$base_dir/data/canada/clipped"
-out_dir="$base_dir/data/canada/cog"
+merit_var="${MERIT_VAR:-}"
+if [[ "$merit_var" != "elv" && "$merit_var" != "wth" ]]; then
+  echo "MERIT_VAR must be set to 'elv' or 'wth'" >&2
+  echo "Example: MERIT_VAR=elv ./scripts/cogify.sh" >&2
+  exit 1
+fi
+
+src_dir="$base_dir/data/canada/$merit_var/clipped"
+out_dir="$base_dir/data/canada/$merit_var/cog"
 
 mkdir -p "$out_dir"
 
@@ -35,5 +42,4 @@ for in_tif in "${inputs[@]}"; do
     -co OVERVIEWS=AUTO \
     -co RESAMPLING=NEAREST \
     "$in_tif" "$out_tif"
-
 done

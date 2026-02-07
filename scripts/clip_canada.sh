@@ -3,8 +3,15 @@ set -euo pipefail
 
 base_dir="$(cd "$(dirname "$0")/.." && pwd)"
 
+merit_var="${MERIT_VAR:-}"
+if [[ "$merit_var" != "elv" && "$merit_var" != "wth" ]]; then
+  echo "MERIT_VAR must be set to 'elv' or 'wth'" >&2
+  echo "Example: MERIT_VAR=elv ./scripts/clip_canada.sh" >&2
+  exit 1
+fi
+
 src_dir="$base_dir/data/raw/tifs"
-out_dir="$base_dir/data/canada/clipped"
+out_dir="$base_dir/data/canada/$merit_var/clipped"
 
 bbox_min_lon="${BBOX_MIN_LON:--80.0}"
 bbox_min_lat="${BBOX_MIN_LAT:-41.0}"
@@ -24,9 +31,24 @@ fi
 
 mkdir -p "$out_dir"
 
-count_inputs="$(find -L "$src_dir" -type f \( -iname "*.tif" -o -iname "*.tiff" \) | wc -l | tr -d ' ')"
+matches_var() {
+  local base_name lower
+  base_name="$1"
+  lower="$(printf '%s' "$base_name" | tr '[:upper:]' '[:lower:]')"
+  [[ "$lower" == *"_${merit_var}.tif" || "$lower" == *"_${merit_var}.tiff" || "$lower" == *"-${merit_var}.tif" || "$lower" == *"-${merit_var}.tiff" ]]
+}
+
+inputs=()
+while IFS= read -r -d '' f; do
+  base_name="$(basename "$f")"
+  if matches_var "$base_name"; then
+    inputs+=("$f")
+  fi
+done < <(find -L "$src_dir" -type f \( -iname "*.tif" -o -iname "*.tiff" \) -print0)
+
+count_inputs="${#inputs[@]}"
 if [ "$count_inputs" -eq 0 ]; then
-  echo "No input GeoTIFFs found in $src_dir" >&2
+  echo "No input GeoTIFFs found in $src_dir matching MERIT_VAR=$merit_var" >&2
   exit 1
 fi
 
@@ -134,7 +156,7 @@ process_one() {
 }
 
 export -f process_one
-export out_dir bbox_min_lon bbox_min_lat bbox_max_lon bbox_max_lat
+export out_dir bbox_min_lon bbox_min_lat bbox_max_lon bbox_max_lat warp_threads
 
-find -L "$src_dir" -type f \( -iname "*.tif" -o -iname "*.tiff" \) -print0 | \
+printf '%s\0' "${inputs[@]}" | \
   xargs -0 -n 1 -P "$parallel" -I {} bash -c 'process_one "$@"' _ {}

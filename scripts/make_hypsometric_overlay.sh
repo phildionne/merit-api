@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INPUT_DIR="$ROOT_DIR/data/canada/cog"
+INPUT_DIR="$ROOT_DIR/data/canada/elv/cog"
 OUTPUT_DIR="$ROOT_DIR/data/overlays"
 COLOR_FILE="$OUTPUT_DIR/hypsometric_0_1000.txt"
 

@@ -15,7 +15,8 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY api /app/api
 
 ENV PORT=8000
-ENV DEM_PATH=/data/mosaic/canada.vrt
+ENV DEM_PATH=/data/mosaic/canada_elv.vrt
+ENV WTH_PATH=/data/mosaic/canada_wth.vrt
 ENV WEB_CONCURRENCY=2
 ENV LOG_LEVEL=info
 ENV PYTHONUNBUFFERED=1

@@ -4,7 +4,7 @@ from typing import Dict, Optional, Tuple
 
 import rasterio
 
-_DEM_PATH = os.getenv("DEM_PATH", "/data/mosaic/canada.vrt")
+_DEM_PATH = os.getenv("DEM_PATH", "/data/mosaic/canada_elv.vrt")
 _dataset = None
 
 
