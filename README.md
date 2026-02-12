@@ -49,17 +49,7 @@ brew install gdal
 ./scripts/prepare_dirs.sh
 ```
 
-### 3. Migrate existing local elevation data (one-time)
-
-If you already have a working elevation dataset in legacy paths (`data/canada/cog`, `data/mosaic/canada.vrt`), migrate it without re-downloading or reprocessing:
-
-```bash
-./scripts/migrate_data_layout.sh
-```
-
-This only moves files and rewrites VRT source paths; it does not run clip/COG/VRT generation.
-
-### 4. Manual download step
+### 3. Manual download step
 
 - Register/accept MERIT-Hydro license and obtain download credentials
 - Download MERIT archives into `data/raw/downloads/`.
