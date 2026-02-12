@@ -1,0 +1,13 @@
+.git
+.gitignore
+.DS_Store
+
+# Local datasets are mounted at runtime; do not send them in build context.
+data/
+
+# Local development artifacts
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+*.log
