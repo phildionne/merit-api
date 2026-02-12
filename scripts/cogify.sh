@@ -35,11 +35,11 @@ for in_tif in "${inputs[@]}"; do
   echo "COGify $in_tif -> $out_tif"
   gdal_translate \
     -of COG \
-    -co COMPRESS=DEFLATE \
+    -co COMPRESS=ZSTD \
     -co LEVEL=9 \
+    -co PREDICTOR=3 \
     -co BLOCKSIZE=512 \
     -co BIGTIFF=IF_SAFER \
-    -co OVERVIEWS=AUTO \
-    -co RESAMPLING=NEAREST \
+    -co OVERVIEWS=NONE \
     "$in_tif" "$out_tif"
 done

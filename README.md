@@ -93,6 +93,7 @@ MERIT_VAR=wth ./scripts/clip_canada.sh
 
 - Converts each clipped raster into a Cloud-Optimized GeoTIFF (COG)
 - Skips if output is newer than input
+- COGs use moderate lossless compression (`COMPRESS=ZSTD`, `LEVEL=9`, `PREDICTOR=3`) and disable overviews (`OVERVIEWS=NONE`) to reduce storage usage
 
 ```bash
 MERIT_VAR=elv ./scripts/cogify.sh
