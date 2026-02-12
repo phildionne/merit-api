@@ -183,7 +183,6 @@ docker run --rm -p 8000:8000 \
   -e API_KEY="your-secret-key" \
   -e DEM_PATH="/data/mosaic/canada_elv.vrt" \
   -e WTH_PATH="/data/mosaic/canada_wth.vrt" \
-  -e ALLOWED_ORIGINS="https://your-domain.com" \
   -e WEB_CONCURRENCY="2" \
   -v "$(pwd)/data:/data:ro" \
   merit-api
