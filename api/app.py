@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Literal, Sequence, Tuple
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field, field_serializer, model_validator
@@ -204,18 +204,6 @@ def ready(response: Response):
     )
 
 
-@app.get("/elevation", dependencies=[Depends(require_api_key)], response_model=ElevationProfileResponse)
-@app.get("/elevations", dependencies=[Depends(require_api_key)], response_model=ElevationProfileResponse)
-def elevation_get(
-    request: Request,
-    lat: float = Query(..., ge=-90, le=90),
-    lng: float = Query(..., ge=-180, le=180),
-):
-    ensure_dataset_available()
-    return _build_profile_response([(lat, lng)], request)
-
-
-@app.post("/elevation", dependencies=[Depends(require_api_key)], response_model=ElevationProfileResponse)
 @app.post("/elevations", dependencies=[Depends(require_api_key)], response_model=ElevationProfileResponse)
 def elevation_post(payload: BatchRequest, request: Request):
     ensure_dataset_available()

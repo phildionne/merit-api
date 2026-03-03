@@ -438,8 +438,15 @@
     pending = setTimeout(async () => {
       const { lat, lng } = lastLatLng;
       try {
-        const resp = await fetch(`${config.apiBase}/elevation?lat=${lat}&lng=${lng}`, {
-          headers: buildAuthHeaders()
+        const resp = await fetch(`${config.apiBase}/elevations`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...buildAuthHeaders()
+          },
+          body: JSON.stringify({
+            points: [{ lat, lng }]
+          })
         });
         if (resp.status === 401) {
           elevEl.textContent = `lat ${lat.toFixed(4)}, lng ${lng.toFixed(4)} - unauthorized (set API key)`;

@@ -8,7 +8,7 @@ api_key="${SMOKE_API_KEY:-${API_KEY:-}}"
 
 health_url="$api_url/health"
 ready_url="$api_url/ready"
-elev_url="$api_url/elevation?lat=46.8139&lng=-71.2080"
+elev_url="$api_url/elevations"
 
 if ! command -v curl >/dev/null 2>&1; then
   echo "curl is required for smoke test" >&2
@@ -43,8 +43,14 @@ else
   echo "$ready_resp" | grep -q '"dem_ready"'
 fi
 
-echo "Checking /elevation"
-elev_resp="$(curl -sf -H "X-API-Key: $api_key" "$elev_url")"
+echo "Checking POST /elevations"
+elev_resp="$(
+  curl -sf -X POST \
+    -H "X-API-Key: $api_key" \
+    -H "Content-Type: application/json" \
+    "$elev_url" \
+    -d '{"points":[{"lat":46.8139,"lng":-71.2080}]}'
+)"
 
 echo "Elevation response: $elev_resp"
 

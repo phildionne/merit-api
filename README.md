@@ -11,8 +11,7 @@ This repo provides an end-to-end workflow to **manually download MERIT-Hydro dat
   - `data/canada/elv/cog/*.tif` (elevation COGs)
   - `data/mosaic/canada_elv.vrt` (elevation VRT mosaic)
 - API
-  - `GET /elevation?lat=<float>&lng=<float>` and `GET /elevations?lat=<float>&lng=<float>`
-  - `POST /elevation` and `POST /elevations` with a batch payload
+  - `POST /elevations` with a batch payload (`points` may contain one point or many)
 
 ## Default BBox (EPSG:4326)
 
@@ -106,14 +105,21 @@ docker compose up --build
   - HTTP 200 when DEM is available.
   - HTTP 503 when DEM is unavailable.
   - A payload like `{ "ok": false, "dem_ready": false }`.
-- **GET `/elevation?lat=&lng=`** and **GET `/elevations?lat=&lng=`**:
-  - Return HTTP 200 with an elevation profile envelope.
-- **POST `/elevation`** and **POST `/elevations`**:
-  - Accept `{ "points": [ {"lat":..,"lng":..}, ... ] }`.
-  - Return the same envelope shape with one point entry per input coordinate.
+- **POST `/elevations`**:
+  - Accepts `{ "points": [ {"lat":..,"lng":..}, ... ] }`.
+  - Returns the same envelope shape with one point entry per input coordinate.
   - Out-of-coverage points return `status: "out_of_coverage"` in the payload (HTTP 200).
 
-Envelope response shape:
+#### Make a request
+
+```bash
+curl -H "X-API-Key: dev-local-key" \
+  -H "Content-Type: application/json" \
+  -X POST "http://localhost:8000/elevations" \
+  -d '{"points":[{"lat":46.8139,"lng":-71.2080},{"lat":46.8145,"lng":-71.2050}]}'
+```
+
+Response shape:
 
 ```json
 {
@@ -138,49 +144,13 @@ Envelope response shape:
 }
 ```
 
-
-Sampling uses **nearest-neighbor** (no bilinear smoothing) for stability and speed.
-
-### curl examples
-
-```bash
-# Elevation (single point)
-curl -H "X-API-Key: dev-local-key" \
-  "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"
-
-# Elevation profile (batch)
-curl -H "X-API-Key: dev-local-key" \
-  -H "Content-Type: application/json" \
-  -X POST "http://localhost:8000/elevations" \
-  -d '{"points":[{"lat":46.8139,"lng":-71.2080},{"lat":46.8145,"lng":-71.2050}]}'
-```
+Note: Sampling uses **nearest-neighbor** (no bilinear smoothing) for stability and speed.
 
 ## Authentication
 
 All data endpoints require an API key via the `X-API-Key` header. The server will fail to start if `API_KEY` is not set.
 
-Example:
-
-```bash
-curl -H "X-API-Key: dev-local-key" \
-  "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"
-```
-
-## Production configuration (API)
-
-Required environment variables:
-
-- `API_KEY` (required): shared secret for `X-API-Key`
-- `DEM_PATH` (required): path to the elevation VRT mosaic (default `/data/mosaic/canada_elv.vrt`)
-
-Optional:
-
-- `ALLOWED_ORIGINS` (default `*`): comma-separated list of origins for CORS
-- `MAX_BATCH` (default `1000`): max points in a batch request
-- `WEB_CONCURRENCY` (default `2`): gunicorn worker count
-- `LOG_LEVEL` (default `info`)
-
-## Production deployment (Local)
+## Docker
 
 1. Build the image:
 
@@ -203,12 +173,29 @@ docker run --rm -p 8000:8000 \
 
 ```bash
 curl -H "X-API-Key: your-secret-key" \
-  "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"
+  -H "Content-Type: application/json" \
+  -X POST "http://localhost:8000/elevations" \
+  -d '{"points":[{"lat":46.8139,"lng":-71.2080}]}'
 ```
 
 ## Production deployment (Disco)
 
 Disco reads `disco.json` at the repo root and builds the API using `Dockerfile.api`.
+
+### Configuration
+
+Required environment variables:
+
+- `API_KEY` (required): shared secret for `X-API-Key`
+- `DEM_PATH` (required): path to the elevation VRT mosaic (default `/data/mosaic/canada_elv.vrt`)
+
+Optional:
+
+- `ALLOWED_ORIGINS` (default `*`): comma-separated list of origins for CORS
+- `MAX_BATCH` (default `1000`): max points in a batch request
+- `WEB_CONCURRENCY` (default `2`): gunicorn worker count
+- `LOG_LEVEL` (default `info`)
+
 
 ### One-time MERIT data import
 
@@ -227,18 +214,9 @@ DISCO=<your-disco> PROJECT=<your-project> INCLUDE_VARS=elv \
   ./scripts/disco_import_data.sh
 ```
 
-### Required env vars
-
-Set these in your Disco project environment:
-
-- `API_KEY` (required)
-- `DEM_PATH=/data/mosaic/canada_elv.vrt`
-
 ## Terracotta usage (overlay-first visualization)
 
 Terracotta is configured in this repo for the overlay workflow (`/data/overlays/{tile}_{layer}_{band}.vrt`). It does **not** replace the FastAPI elevation API.
-
-### Quick serve (no DB)
 
 ```bash
 docker compose up --build terracotta
@@ -277,7 +255,7 @@ The repo includes `viewer/index.html`, a simple static viewer with:
 
 - A basemap for context
 - The Terracotta elevation tile layer
-- A live elevation readout that calls the FastAPI `/elevation` endpoint with `X-API-Key`
+- A live elevation readout that calls FastAPI `POST /elevations` with `X-API-Key`
 - An in-page config panel for API base URL, Terracotta base URL, and API key
 
 ### Run it

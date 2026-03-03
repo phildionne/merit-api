@@ -54,7 +54,7 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(payload["ok"], True)
         self.assertEqual(payload["dem_ready"], True)
 
-    def test_elevation_requires_api_key(self):
+    def test_post_elevations_requires_api_key(self):
         with patch.object(app_module.dem, "_open_dataset", return_value=object()):
             with patch.object(
                 app_module.dem,
@@ -62,10 +62,12 @@ class ApiContractTests(unittest.TestCase):
                 return_value={"elevation_m": 123.45, "status": "ok"},
             ):
                 with TestClient(app_module.app) as client:
-                    unauthorized = client.get("/elevation?lat=46.8139&lng=-71.2080")
-                    authorized = client.get(
-                        "/elevation?lat=46.8139&lng=-71.2080",
+                    payload = {"points": [{"lat": 46.8139, "lng": -71.2080}]}
+                    unauthorized = client.post("/elevations", json=payload)
+                    authorized = client.post(
+                        "/elevations",
                         headers={"X-API-Key": "test-api-key"},
+                        json=payload,
                     )
         self.assertEqual(unauthorized.status_code, 401)
         self.assertEqual(authorized.status_code, 200)
@@ -74,7 +76,7 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(payload["points"][0]["status"], "ok")
         self.assertEqual(payload["points"][0]["elevation_m"], 123.45)
 
-    def test_elevation_out_of_coverage_returns_200(self):
+    def test_post_elevations_out_of_coverage_returns_200(self):
         with patch.object(app_module.dem, "_open_dataset", return_value=object()):
             with patch.object(
                 app_module.dem,
@@ -82,9 +84,10 @@ class ApiContractTests(unittest.TestCase):
                 return_value={"elevation_m": None, "status": "out_of_coverage"},
             ):
                 with TestClient(app_module.app) as client:
-                    response = client.get(
-                        "/elevation?lat=0&lng=0",
+                    response = client.post(
+                        "/elevations",
                         headers={"X-API-Key": "test-api-key"},
+                        json={"points": [{"lat": 0, "lng": 0}]},
                     )
         self.assertEqual(response.status_code, 200)
         payload = response.json()
@@ -92,42 +95,19 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(payload["points"][0]["status"], "out_of_coverage")
         self.assertIsNone(payload["points"][0]["elevation_m"])
 
-    def test_elevations_alias_routes_work_for_get_and_post(self):
-        with patch.object(app_module.dem, "_open_dataset", return_value=object()):
-            with patch.object(
-                app_module.dem,
-                "sample_point",
-                side_effect=[
-                    {"elevation_m": 10.0, "status": "ok"},
-                    {"elevation_m": 11.0, "status": "ok"},
-                    {"elevation_m": None, "status": "nodata"},
-                ],
-            ):
-                with TestClient(app_module.app) as client:
-                    get_response = client.get(
-                        "/elevations?lat=46.8&lng=-71.2",
-                        headers={"X-API-Key": "test-api-key"},
-                    )
-                    post_response = client.post(
-                        "/elevations",
-                        headers={"X-API-Key": "test-api-key"},
-                        json={
-                            "points": [
-                                {"lat": 46.8, "lng": -71.2},
-                                {"lat": 46.81, "lng": -71.19},
-                            ]
-                        },
-                    )
-        self.assertEqual(get_response.status_code, 200)
-        self.assertEqual(post_response.status_code, 200)
+    def test_removed_and_unsupported_elevation_routes_return_default_statuses(self):
+        with TestClient(app_module.app) as client:
+            get_elevation = client.get("/elevation")
+            post_elevation = client.post(
+                "/elevation",
+                headers={"X-API-Key": "test-api-key"},
+                json={"points": [{"lat": 46.8, "lng": -71.2}]},
+            )
+            get_elevations = client.get("/elevations")
 
-        get_payload = get_response.json()
-        post_payload = post_response.json()
-        self.assert_envelope(get_payload, total_points=1)
-        self.assert_envelope(post_payload, total_points=2)
-        self.assertEqual(get_payload["points"][0]["status"], "ok")
-        self.assertEqual(post_payload["points"][0]["status"], "ok")
-        self.assertEqual(post_payload["points"][1]["status"], "nodata")
+        self.assertEqual(get_elevation.status_code, 404)
+        self.assertEqual(post_elevation.status_code, 404)
+        self.assertEqual(get_elevations.status_code, 405)
 
     def test_post_mixed_status_quality_and_coverage_ratio(self):
         with patch.object(app_module.dem, "_open_dataset", return_value=object()):
@@ -142,7 +122,7 @@ class ApiContractTests(unittest.TestCase):
             ):
                 with TestClient(app_module.app) as client:
                     response = client.post(
-                        "/elevation",
+                        "/elevations",
                         headers={"X-API-Key": "test-api-key"},
                         json={
                             "points": [
@@ -173,7 +153,7 @@ class ApiContractTests(unittest.TestCase):
             ):
                 with TestClient(app_module.app) as client:
                     response = client.post(
-                        "/elevation",
+                        "/elevations",
                         headers={"X-API-Key": "test-api-key"},
                         json={"points": [{"lat": 0.0, "lng": 0.0}, {"lat": 0.0, "lng": 1.0}]},
                     )
@@ -198,13 +178,16 @@ class ApiContractTests(unittest.TestCase):
                 return_value={"elevation_m": 8.0, "status": "ok"},
             ):
                 with TestClient(app_module.app) as client:
-                    echoed = client.get(
-                        "/elevation?lat=46.8&lng=-71.2",
+                    payload = {"points": [{"lat": 46.8, "lng": -71.2}]}
+                    echoed = client.post(
+                        "/elevations",
                         headers={"X-API-Key": "test-api-key", "X-Request-ID": "req-123"},
+                        json=payload,
                     )
-                    generated = client.get(
-                        "/elevation?lat=46.8&lng=-71.2",
+                    generated = client.post(
+                        "/elevations",
                         headers={"X-API-Key": "test-api-key"},
+                        json=payload,
                     )
 
         self.assertEqual(echoed.status_code, 200)
