@@ -50,8 +50,6 @@ class ApiContractTests(unittest.TestCase):
                     "lng": -71.2080,
                     "elevation_m": 123.45,
                     "nodata": False,
-                    "dataset": "MERIT-Hydro",
-                    "source": "VRT",
                 },
             ):
                 with TestClient(app_module.app) as client:

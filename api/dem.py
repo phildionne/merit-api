@@ -15,12 +15,6 @@ def _open_dataset():
     return _dataset
 
 
-def _dataset_source(ds) -> str:
-    if getattr(ds, "driver", "").upper() == "VRT":
-        return "VRT"
-    return ds.driver or "unknown"
-
-
 def _in_bounds(ds, lat: float, lng: float) -> bool:
     left, bottom, right, top = ds.bounds
     return left <= lng <= right and bottom <= lat <= top
@@ -50,8 +44,6 @@ def sample_point(lat: float, lng: float, *, allow_oob: bool = False) -> Dict:
                 "lng": lng,
                 "elevation_m": None,
                 "nodata": True,
-                "dataset": "MERIT-Hydro",
-                "source": _dataset_source(ds),
                 "error": "out_of_bounds",
             }
         raise ValueError("Point is outside dataset bounds")
@@ -64,6 +56,4 @@ def sample_point(lat: float, lng: float, *, allow_oob: bool = False) -> Dict:
         "lng": lng,
         "elevation_m": elev if not nodata else None,
         "nodata": nodata,
-        "dataset": "MERIT-Hydro",
-        "source": _dataset_source(ds),
     }

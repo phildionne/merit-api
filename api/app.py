@@ -70,8 +70,6 @@ class ElevationPointResponse(BaseModel):
     lng: float
     elevation_m: Optional[float] = None
     nodata: bool
-    dataset: str
-    source: str
     error: Optional[Literal["out_of_bounds"]] = None
 
 

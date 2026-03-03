@@ -49,14 +49,12 @@ elev_resp="$(curl -sf -H "X-API-Key: $api_key" "$elev_url")"
 echo "Elevation response: $elev_resp"
 
 if command -v jq >/dev/null 2>&1; then
-  echo "$elev_resp" | jq -e 'has("lat") and has("lng") and has("elevation_m") and has("nodata") and has("dataset") and has("source")' >/dev/null
+  echo "$elev_resp" | jq -e 'has("lat") and has("lng") and has("elevation_m") and has("nodata")' >/dev/null
 else
   echo "$elev_resp" | grep -q '"lat"'
   echo "$elev_resp" | grep -q '"lng"'
   echo "$elev_resp" | grep -q '"elevation_m"'
   echo "$elev_resp" | grep -q '"nodata"'
-  echo "$elev_resp" | grep -q '"dataset"'
-  echo "$elev_resp" | grep -q '"source"'
 fi
 
 echo "Smoke test OK"
