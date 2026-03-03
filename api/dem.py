@@ -35,25 +35,23 @@ def _cached_sample(lat_r: float, lng_r: float) -> Tuple[Optional[float], bool]:
     return _sample_raw(ds, lat_r, lng_r)
 
 
-def sample_point(lat: float, lng: float, *, allow_oob: bool = False) -> Dict:
+def sample_point(lat: float, lng: float) -> Dict:
     ds = _open_dataset()
     if not _in_bounds(ds, lat, lng):
-        if allow_oob:
-            return {
-                "lat": lat,
-                "lng": lng,
-                "elevation_m": None,
-                "nodata": True,
-                "error": "out_of_bounds",
-            }
-        raise ValueError("Point is outside dataset bounds")
+        return {
+            "elevation_m": None,
+            "status": "out_of_coverage",
+        }
 
     lat_r = round(lat, 5)
     lng_r = round(lng, 5)
     elev, nodata = _cached_sample(lat_r, lng_r)
+    if nodata:
+        return {
+            "elevation_m": None,
+            "status": "nodata",
+        }
     return {
-        "lat": lat,
-        "lng": lng,
-        "elevation_m": elev if not nodata else None,
-        "nodata": nodata,
+        "elevation_m": elev,
+        "status": "ok",
     }

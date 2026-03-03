@@ -1,10 +1,13 @@
+import math
 import os
-from typing import List, Literal, Optional
+import uuid
+from datetime import datetime, timezone
+from typing import List, Literal, Sequence, Tuple
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_serializer, model_validator
 from rasterio.errors import RasterioIOError
 
 from . import dem
@@ -15,6 +18,7 @@ API_KEY = (os.getenv("API_KEY") or "").strip()
 MAX_BATCH = int(os.getenv("MAX_BATCH", "1000"))
 _origins_env = (os.getenv("ALLOWED_ORIGINS") or "*").strip()
 ALLOWED_ORIGINS = ["*"] if _origins_env == "*" else [o.strip() for o in _origins_env.split(",") if o.strip()]
+EARTH_RADIUS_M = 6371008.8
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,16 +69,35 @@ class ReadyResponse(BaseModel):
     dem_ready: bool
 
 
-class ElevationPointResponse(BaseModel):
-    lat: float
-    lng: float
-    elevation_m: Optional[float] = None
-    nodata: bool
-    error: Optional[Literal["out_of_bounds"]] = None
+class ProfilePointResponse(BaseModel):
+    chainage_m: float
+    elevation_m: float | None = None
+    status: Literal["ok", "nodata", "out_of_coverage"]
 
 
-class ElevationBatchResponse(BaseModel):
-    points: List[ElevationPointResponse]
+class SourceMetaResponse(BaseModel):
+    generated_at: datetime
+    request_id: str
+
+    @field_serializer("generated_at")
+    def serialize_generated_at(self, generated_at: datetime) -> str:
+        return generated_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+class QualityResponse(BaseModel):
+    total: int
+    ok: int
+    nodata: int
+    out_of_coverage: int
+    coverage_ratio: float
+
+
+class ElevationProfileResponse(BaseModel):
+    version: Literal[1]
+    source: SourceMetaResponse
+    line_length_m: float
+    points: List[ProfilePointResponse]
+    quality: QualityResponse
 
 
 @app.on_event("startup")
@@ -101,6 +124,69 @@ def dataset_is_available(dataset_opener) -> bool:
         return False
 
 
+def _haversine_distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    lat1_r = math.radians(lat1)
+    lat2_r = math.radians(lat2)
+    dlat = lat2_r - lat1_r
+    dlng = math.radians(lng2 - lng1)
+    a = math.sin(dlat / 2.0) ** 2 + math.cos(lat1_r) * math.cos(lat2_r) * math.sin(dlng / 2.0) ** 2
+    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+    return EARTH_RADIUS_M * c
+
+
+def _build_chainage_m(points: Sequence[Tuple[float, float]]) -> List[float]:
+    if not points:
+        return []
+
+    chainage = [0.0]
+    total = 0.0
+    for idx in range(1, len(points)):
+        prev_lat, prev_lng = points[idx - 1]
+        lat, lng = points[idx]
+        total += _haversine_distance_m(prev_lat, prev_lng, lat, lng)
+        chainage.append(total)
+    return chainage
+
+
+def _build_quality(statuses: Sequence[str]) -> QualityResponse:
+    total = len(statuses)
+    ok = statuses.count("ok")
+    nodata = statuses.count("nodata")
+    out_of_coverage = statuses.count("out_of_coverage")
+    coverage_ratio = round(ok / total, 10) if total > 0 else 0.0
+    return QualityResponse(
+        total=total,
+        ok=ok,
+        nodata=nodata,
+        out_of_coverage=out_of_coverage,
+        coverage_ratio=coverage_ratio,
+    )
+
+
+def _build_profile_response(coords: Sequence[Tuple[float, float]], request: Request) -> ElevationProfileResponse:
+    results = [dem.sample_point(lat, lng) for lat, lng in coords]
+    chainages = _build_chainage_m(coords)
+
+    points = [
+        ProfilePointResponse(
+            chainage_m=chainages[idx],
+            elevation_m=result["elevation_m"],
+            status=result["status"],
+        )
+        for idx, result in enumerate(results)
+    ]
+    statuses = [point.status for point in points]
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+
+    return ElevationProfileResponse(
+        version=1,
+        source=SourceMetaResponse(generated_at=datetime.now(timezone.utc), request_id=request_id),
+        line_length_m=chainages[-1] if chainages else 0.0,
+        points=points,
+        quality=_build_quality(statuses),
+    )
+
+
 @app.get("/health", response_model=HealthResponse)
 def health():
     # Liveness only: process is up and can serve requests.
@@ -118,20 +204,20 @@ def ready(response: Response):
     )
 
 
-@app.get("/elevation", dependencies=[Depends(require_api_key)], response_model=ElevationPointResponse)
+@app.get("/elevation", dependencies=[Depends(require_api_key)], response_model=ElevationProfileResponse)
+@app.get("/elevations", dependencies=[Depends(require_api_key)], response_model=ElevationProfileResponse)
 def elevation_get(
+    request: Request,
     lat: float = Query(..., ge=-90, le=90),
     lng: float = Query(..., ge=-180, le=180),
 ):
     ensure_dataset_available()
-    try:
-        return dem.sample_point(lat, lng, allow_oob=False)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _build_profile_response([(lat, lng)], request)
 
 
-@app.post("/elevation", dependencies=[Depends(require_api_key)], response_model=ElevationBatchResponse)
-def elevation_post(payload: BatchRequest):
+@app.post("/elevation", dependencies=[Depends(require_api_key)], response_model=ElevationProfileResponse)
+@app.post("/elevations", dependencies=[Depends(require_api_key)], response_model=ElevationProfileResponse)
+def elevation_post(payload: BatchRequest, request: Request):
     ensure_dataset_available()
-    results = [dem.sample_point(p.lat, p.lng, allow_oob=True) for p in payload.points]
-    return {"points": results}
+    coords = [(point.lat, point.lng) for point in payload.points]
+    return _build_profile_response(coords, request)

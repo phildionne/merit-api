@@ -418,10 +418,15 @@
     }
   }
 
-  function formatElev(json) {
-    if (json.nodata) return 'nodata';
-    if (json.elevation_m === null || json.elevation_m === undefined) return 'null';
-    return `${json.elevation_m.toFixed(2)} m`;
+  function formatElev(profile) {
+    const points = Array.isArray(profile.points) ? profile.points : [];
+    if (!points.length) return 'no points';
+
+    const point = points[0];
+    if (point.status === 'out_of_coverage') return 'out_of_coverage';
+    if (point.status === 'nodata') return 'nodata';
+    if (point.elevation_m === null || point.elevation_m === undefined) return 'null';
+    return `${point.elevation_m.toFixed(2)} m`;
   }
 
   let pending = null;

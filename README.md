@@ -11,8 +11,8 @@ This repo provides an end-to-end workflow to **manually download MERIT-Hydro dat
   - `data/canada/elv/cog/*.tif` (elevation COGs)
   - `data/mosaic/canada_elv.vrt` (elevation VRT mosaic)
 - API
-  - `GET /elevation?lat=<float>&lng=<float>`
-  - `POST /elevation` with a batch payload
+  - `GET /elevation?lat=<float>&lng=<float>` and `GET /elevations?lat=<float>&lng=<float>`
+  - `POST /elevation` and `POST /elevations` with a batch payload
 
 ## Default BBox (EPSG:4326)
 
@@ -106,13 +106,38 @@ docker compose up --build
   - HTTP 200 when DEM is available.
   - HTTP 503 when DEM is unavailable.
   - A payload like `{ "ok": false, "dem_ready": false }`.
-- **GET `/elevation?lat=&lng=`**:
-  - If out of bounds: returns HTTP 400.
-  - If nodata: returns `elevation_m: null` and `nodata: true`.
-- **POST `/elevation`**:
-  - Accepts `{ "points": [ {"lat":..,"lng":..}, ... ] }`.
-  - Returns `{ "points": [ ... ] }` with per-point results.
-  - If a point is out of bounds, the response includes `"error": "out_of_bounds"` for that point.
+- **GET `/elevation?lat=&lng=`** and **GET `/elevations?lat=&lng=`**:
+  - Return HTTP 200 with an elevation profile envelope.
+- **POST `/elevation`** and **POST `/elevations`**:
+  - Accept `{ "points": [ {"lat":..,"lng":..}, ... ] }`.
+  - Return the same envelope shape with one point entry per input coordinate.
+  - Out-of-coverage points return `status: "out_of_coverage"` in the payload (HTTP 200).
+
+Envelope response shape:
+
+```json
+{
+  "version": 1,
+  "source": {
+    "generated_at": "2026-02-27T15:04:05Z",
+    "request_id": "..."
+  },
+  "line_length_m": 1520.4,
+  "points": [
+    { "chainage_m": 0.0, "elevation_m": 42.1, "status": "ok" },
+    { "chainage_m": 60.0, "elevation_m": null, "status": "nodata" },
+    { "chainage_m": 120.0, "elevation_m": null, "status": "out_of_coverage" }
+  ],
+  "quality": {
+    "total": 3,
+    "ok": 1,
+    "nodata": 1,
+    "out_of_coverage": 1,
+    "coverage_ratio": 0.3333333333
+  }
+}
+```
+
 
 Sampling uses **nearest-neighbor** (no bilinear smoothing) for stability and speed.
 
@@ -122,6 +147,12 @@ Sampling uses **nearest-neighbor** (no bilinear smoothing) for stability and spe
 # Elevation (single point)
 curl -H "X-API-Key: dev-local-key" \
   "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"
+
+# Elevation profile (batch)
+curl -H "X-API-Key: dev-local-key" \
+  -H "Content-Type: application/json" \
+  -X POST "http://localhost:8000/elevations" \
+  -d '{"points":[{"lat":46.8139,"lng":-71.2080},{"lat":46.8145,"lng":-71.2050}]}'
 ```
 
 ## Authentication
