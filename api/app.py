@@ -31,8 +31,12 @@ app.add_middleware(
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
+def api_key_is_configured() -> bool:
+    return bool(API_KEY)
+
+
 def require_api_key(api_key: str = Depends(api_key_header)) -> None:
-    if not API_KEY:
+    if not api_key_is_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="API key not configured",
@@ -98,12 +102,6 @@ class ElevationProfileResponse(BaseModel):
     line_length_m: float
     points: List[ProfilePointResponse]
     quality: QualityResponse
-
-
-@app.on_event("startup")
-def startup_checks():
-    if not API_KEY:
-        raise RuntimeError("API_KEY must be set for the API to start")
 
 
 def ensure_dataset_available() -> None:
@@ -196,10 +194,11 @@ def health():
 @app.get("/ready", response_model=ReadyResponse)
 def ready(response: Response):
     dem_ready = dataset_is_available(dem._open_dataset)
-    if not dem_ready:
+    service_ready = dem_ready and api_key_is_configured()
+    if not service_ready:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return ReadyResponse(
-        ok=dem_ready,
+        ok=service_ready,
         dem_ready=dem_ready,
     )
 

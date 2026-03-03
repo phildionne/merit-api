@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-required_tools=(gdalinfo gdalwarp gdal_translate gdalbuildvrt curl unzip tar)
+required_tools=(gdalinfo gdalwarp gdal_translate gdaldem gdalbuildvrt python3 curl unzip tar)
 missing=()
 
 for tool in "${required_tools[@]}"; do
@@ -12,13 +12,14 @@ done
 
 if [ "${#missing[@]}" -gt 0 ]; then
   echo "Missing required tools: ${missing[*]}" >&2
-  echo "Install GDAL (gdalinfo/gdalwarp/gdal_translate/gdalbuildvrt), curl, unzip, and tar." >&2
+  echo "Install GDAL (gdalinfo/gdalwarp/gdal_translate/gdaldem/gdalbuildvrt), Python 3, curl, unzip, and tar." >&2
   exit 1
 fi
 
 echo "Found required tools. Versions:"
 
 gdalinfo --version
+python3 --version
 curl --version | head -n 1
 unzip -v | head -n 1
 

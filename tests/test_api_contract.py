@@ -54,6 +54,17 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(payload["ok"], True)
         self.assertEqual(payload["dem_ready"], True)
 
+    def test_ready_returns_503_when_api_key_not_configured(self):
+        with patch.object(app_module, "API_KEY", ""):
+            with patch.object(app_module.dem, "_open_dataset", return_value=object()):
+                with TestClient(app_module.app) as client:
+                    response = client.get("/ready")
+
+        self.assertEqual(response.status_code, 503)
+        payload = response.json()
+        self.assertEqual(payload["ok"], False)
+        self.assertEqual(payload["dem_ready"], True)
+
     def test_post_elevations_requires_api_key(self):
         with patch.object(app_module.dem, "_open_dataset", return_value=object()):
             with patch.object(
@@ -76,6 +87,19 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(payload["points"][0]["status"], "ok")
         self.assertEqual(payload["points"][0]["elevation_m"], 123.45)
 
+    def test_post_elevations_returns_503_when_server_api_key_missing(self):
+        with patch.object(app_module, "API_KEY", ""):
+            with patch.object(app_module.dem, "_open_dataset", return_value=object()):
+                with TestClient(app_module.app) as client:
+                    response = client.post(
+                        "/elevations",
+                        headers={"X-API-Key": "any-key"},
+                        json={"points": [{"lat": 46.8139, "lng": -71.2080}]},
+                    )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"], "API key not configured")
+
     def test_post_elevations_out_of_coverage_returns_200(self):
         with patch.object(app_module.dem, "_open_dataset", return_value=object()):
             with patch.object(
@@ -94,6 +118,27 @@ class ApiContractTests(unittest.TestCase):
         self.assert_envelope(payload, total_points=1)
         self.assertEqual(payload["points"][0]["status"], "out_of_coverage")
         self.assertIsNone(payload["points"][0]["elevation_m"])
+
+    def test_post_elevations_accepts_empty_points(self):
+        with patch.object(app_module.dem, "_open_dataset", return_value=object()):
+            with patch.object(app_module.dem, "sample_point") as sample_point:
+                with TestClient(app_module.app) as client:
+                    response = client.post(
+                        "/elevations",
+                        headers={"X-API-Key": "test-api-key"},
+                        json={"points": []},
+                    )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assert_envelope(payload, total_points=0)
+        self.assertEqual(payload["line_length_m"], 0.0)
+        self.assertEqual(payload["points"], [])
+        self.assertEqual(payload["quality"]["ok"], 0)
+        self.assertEqual(payload["quality"]["nodata"], 0)
+        self.assertEqual(payload["quality"]["out_of_coverage"], 0)
+        self.assertEqual(payload["quality"]["coverage_ratio"], 0.0)
+        sample_point.assert_not_called()
 
     def test_removed_and_unsupported_elevation_routes_return_default_statuses(self):
         with TestClient(app_module.app) as client:

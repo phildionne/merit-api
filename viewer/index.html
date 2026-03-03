@@ -354,18 +354,6 @@
 
   map.addControl(new OverlayOpacityControl());
 
-  const canadaBounds = [
-    [41.0, -80.0],
-    [63.0, -55.0]
-  ];
-
-  L.rectangle(canadaBounds, {
-    color: '#ff3b30',
-    weight: 2,
-    fill: false,
-    dashArray: '6 6'
-  }).addTo(map);
-
   function parseTileId(tileId) {
     const match = /^([ns])(\d{2})([ew])(\d{3})/.exec(tileId);
     if (!match) return null;
@@ -393,6 +381,7 @@
       if (!resp.ok) return;
       const json = await resp.json();
       const datasets = Array.isArray(json.datasets) ? json.datasets : [];
+      let aggregateBounds = null;
       datasets.forEach((ds) => {
         const tileId = ds.tile || ds.name || ds.id;
         const layerId = ds.layer;
@@ -400,6 +389,15 @@
         if (layerId && layerId !== overlayLayerKey) return;
         const bounds = tileBounds(tileId);
         if (!bounds) return;
+        const [[south, west], [north, east]] = bounds;
+        if (aggregateBounds === null) {
+          aggregateBounds = { south, west, north, east };
+        } else {
+          aggregateBounds.south = Math.min(aggregateBounds.south, south);
+          aggregateBounds.west = Math.min(aggregateBounds.west, west);
+          aggregateBounds.north = Math.max(aggregateBounds.north, north);
+          aggregateBounds.east = Math.max(aggregateBounds.east, east);
+        }
         L.rectangle(bounds, {
           color: '#007aff',
           weight: 1,
@@ -413,6 +411,17 @@
             className: 'tile-label'
           });
       });
+      if (aggregateBounds !== null) {
+        L.rectangle([
+          [aggregateBounds.south, aggregateBounds.west],
+          [aggregateBounds.north, aggregateBounds.east]
+        ], {
+          color: '#ff3b30',
+          weight: 2,
+          fill: false,
+          dashArray: '6 6'
+        }).addTo(datasetBoundsLayer);
+      }
     } catch (err) {
       // Ignore if terracotta is not running.
     }
