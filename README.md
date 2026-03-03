@@ -11,7 +11,7 @@ This repo provides an end-to-end workflow to **manually download MERIT-Hydro dat
   - `data/canada/elv/cog/*.tif` (elevation COGs)
   - `data/mosaic/canada_elv.vrt` (elevation VRT mosaic)
 - API
-  - `POST /elevations` with a batch payload (`points` may contain one point or many)
+  - `POST /elevations` with a batch payload (`points` may contain zero points or many)
 
 ## Default BBox (EPSG:4326)
 
@@ -26,7 +26,7 @@ This bbox is used by the clip script to reduce file size; configurable via env v
 
 ### 1. Install GDAL locally
 
-You need `gdalinfo`, `gdalwarp`, `gdal_translate`, `gdalbuildvrt` available in your `PATH`.
+You need `gdalinfo`, `gdalwarp`, `gdal_translate`, `gdaldem`, `gdalbuildvrt`, and `python3` available in your `PATH`.
 
 ```bash
 brew install gdal
@@ -100,13 +100,13 @@ This exposes both the API and a Terracotta tile server:
 docker compose up --build
 ```
 
-- **GET `/health`** is liveness-only and always returns HTTP 200 with `{ "ok": true, "status": "alive" }`.
+- **GET `/health`** is liveness-only and always returns HTTP 200 with `{ "ok": true, "status": "alive" }`. Docker `HEALTHCHECK` probes this endpoint.
 - **GET `/ready`** is readiness and returns:
-  - HTTP 200 when DEM is available.
-  - HTTP 503 when DEM is unavailable.
-  - A payload like `{ "ok": false, "dem_ready": false }`.
+  - HTTP 200 when DEM is available and `API_KEY` is configured.
+  - HTTP 503 when DEM is unavailable or `API_KEY` is not configured.
+  - A payload like `{ "ok": false, "dem_ready": true }` when only API key configuration is missing.
 - **POST `/elevations`**:
-  - Accepts `{ "points": [ {"lat":..,"lng":..}, ... ] }`.
+  - Accepts `{ "points": [ {"lat":..,"lng":..}, ... ] }` with zero or more points.
   - Returns the same envelope shape with one point entry per input coordinate.
   - Out-of-coverage points return `status: "out_of_coverage"` in the payload (HTTP 200).
 
@@ -148,7 +148,7 @@ Note: Sampling uses **nearest-neighbor** (no bilinear smoothing) for stability a
 
 ## Authentication
 
-All data endpoints require an API key via the `X-API-Key` header. The server will fail to start if `API_KEY` is not set.
+All data endpoints require an API key via the `X-API-Key` header. The server can start without `API_KEY`, but authenticated data requests return HTTP 503 until `API_KEY` is configured.
 
 ## Docker
 
@@ -186,11 +186,11 @@ Disco reads `disco.json` at the repo root and builds the API using `Dockerfile.a
 
 Required environment variables:
 
-- `API_KEY` (required): shared secret for `X-API-Key`
 - `DEM_PATH` (required): path to the elevation VRT mosaic (default `/data/mosaic/canada_elv.vrt`)
 
 Optional:
 
+- `API_KEY`: shared secret for `X-API-Key`; required for successful `/elevations` requests
 - `ALLOWED_ORIGINS` (default `*`): comma-separated list of origins for CORS
 - `MAX_BATCH` (default `1000`): max points in a batch request
 - `WEB_CONCURRENCY` (default `2`): gunicorn worker count
@@ -255,6 +255,7 @@ The repo includes `viewer/index.html`, a simple static viewer with:
 
 - A basemap for context
 - The Terracotta elevation tile layer
+- Dataset coverage outlines and aggregate bounds derived from Terracotta dataset tile keys
 - A live elevation readout that calls FastAPI `POST /elevations` with `X-API-Key`
 - An in-page config panel for API base URL, Terracotta base URL, and API key
 
