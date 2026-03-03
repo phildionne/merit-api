@@ -1,13 +1,13 @@
 import os
-from typing import List, Union
+from typing import List, Literal, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field, model_validator
 from rasterio.errors import RasterioIOError
 
-from . import dem, wth
+from . import dem
 
 app = FastAPI(title="MERIT-Hydro API")
 
@@ -55,18 +55,28 @@ class BatchRequest(BaseModel):
         return self
 
 
-class PointWithId(Point):
-    id: Union[str, int] = Field(..., description="Client-provided point identifier")
+class HealthResponse(BaseModel):
+    ok: bool
+    status: Literal["alive"]
 
 
-class WidthBatchRequest(BaseModel):
-    points: List[PointWithId]
+class ReadyResponse(BaseModel):
+    ok: bool
+    dem_ready: bool
 
-    @model_validator(mode="after")
-    def validate_size(self):
-        if len(self.points) > MAX_BATCH:
-            raise ValueError(f"Too many points; max is {MAX_BATCH}")
-        return self
+
+class ElevationPointResponse(BaseModel):
+    lat: float
+    lng: float
+    elevation_m: Optional[float] = None
+    nodata: bool
+    dataset: str
+    source: str
+    error: Optional[Literal["out_of_bounds"]] = None
+
+
+class ElevationBatchResponse(BaseModel):
+    points: List[ElevationPointResponse]
 
 
 @app.on_event("startup")
@@ -85,26 +95,32 @@ def ensure_dataset_available() -> None:
         )
 
 
-def ensure_wth_dataset_available() -> None:
+def dataset_is_available(dataset_opener) -> bool:
     try:
-        wth._open_dataset()
+        dataset_opener()
+        return True
     except RasterioIOError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="WTH dataset not available",
-        )
+        return False
 
 
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse)
 def health():
-    try:
-        ensure_dataset_available()
-        return {"ok": True}
-    except HTTPException:
-        return {"ok": False, "dem_ready": False}
+    # Liveness only: process is up and can serve requests.
+    return HealthResponse(ok=True, status="alive")
 
 
-@app.get("/elevation", dependencies=[Depends(require_api_key)])
+@app.get("/ready", response_model=ReadyResponse)
+def ready(response: Response):
+    dem_ready = dataset_is_available(dem._open_dataset)
+    if not dem_ready:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return ReadyResponse(
+        ok=dem_ready,
+        dem_ready=dem_ready,
+    )
+
+
+@app.get("/elevation", dependencies=[Depends(require_api_key)], response_model=ElevationPointResponse)
 def elevation_get(
     lat: float = Query(..., ge=-90, le=90),
     lng: float = Query(..., ge=-180, le=180),
@@ -116,19 +132,8 @@ def elevation_get(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/elevation", dependencies=[Depends(require_api_key)])
+@app.post("/elevation", dependencies=[Depends(require_api_key)], response_model=ElevationBatchResponse)
 def elevation_post(payload: BatchRequest):
     ensure_dataset_available()
     results = [dem.sample_point(p.lat, p.lng, allow_oob=True) for p in payload.points]
-    return {"points": results}
-
-
-@app.post("/width", dependencies=[Depends(require_api_key)])
-def width_post(payload: WidthBatchRequest):
-    ensure_wth_dataset_available()
-    results = []
-    for p in payload.points:
-        sampled = wth.sample_point(p.lat, p.lng, allow_oob=True)
-        sampled["id"] = p.id
-        results.append(sampled)
     return {"points": results}

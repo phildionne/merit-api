@@ -3,15 +3,8 @@ set -euo pipefail
 
 base_dir="$(cd "$(dirname "$0")/.." && pwd)"
 
-merit_var="${MERIT_VAR:-}"
-if [[ "$merit_var" != "elv" && "$merit_var" != "wth" ]]; then
-  echo "MERIT_VAR must be set to 'elv' or 'wth'" >&2
-  echo "Example: MERIT_VAR=elv ./scripts/cogify.sh" >&2
-  exit 1
-fi
-
-src_dir="$base_dir/data/canada/$merit_var/clipped"
-out_dir="$base_dir/data/canada/$merit_var/cog"
+src_dir="$base_dir/data/canada/elv/clipped"
+out_dir="$base_dir/data/canada/elv/cog"
 
 mkdir -p "$out_dir"
 

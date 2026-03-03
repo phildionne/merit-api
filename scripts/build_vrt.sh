@@ -3,18 +3,13 @@ set -euo pipefail
 
 base_dir="$(cd "$(dirname "$0")/.." && pwd)"
 
-merit_var="${MERIT_VAR:-}"
-if [[ "$merit_var" != "elv" && "$merit_var" != "wth" ]]; then
-  echo "MERIT_VAR must be set to 'elv' or 'wth'" >&2
-  echo "Example: MERIT_VAR=elv ./scripts/build_vrt.sh" >&2
-  exit 1
-fi
-
-cog_dir="$base_dir/data/canada/$merit_var/cog"
-output_vrt="$base_dir/data/mosaic/canada_${merit_var}.vrt"
+cog_dir="$base_dir/data/canada/elv/cog"
+output_vrt="$base_dir/data/mosaic/canada_elv.vrt"
+force="${FORCE:-0}"
 
 shopt -s nullglob
 cogs=("$cog_dir"/*.tif "$cog_dir"/*.tiff)
+shopt -u nullglob
 
 if [ "${#cogs[@]}" -eq 0 ]; then
   echo "No COGs found in $cog_dir" >&2
@@ -23,18 +18,32 @@ fi
 
 mkdir -p "$(dirname "$output_vrt")"
 
-if [ -f "$output_vrt" ]; then
-  echo "Skipping existing VRT: $output_vrt"
+needs_rebuild=1
+if [ "$force" != "1" ] && [ -f "$output_vrt" ]; then
+  newer_count="$(find "$cog_dir" -maxdepth 1 -type f \( -iname "*.tif" -o -iname "*.tiff" \) -newer "$output_vrt" | wc -l | tr -d ' ')"
+  if [ "$newer_count" -eq 0 ]; then
+    needs_rebuild=0
+  fi
+fi
+
+if [ "$needs_rebuild" -eq 0 ]; then
+  echo "Up to date: $output_vrt"
   exit 0
 fi
 
 tmp_list="$(mktemp)"
+tmp_vrt="$(mktemp "$(dirname "$output_vrt")/.elv.vrt.tmp.XXXXXX")"
+cleanup() {
+  rm -f "$tmp_list" "$tmp_vrt"
+}
+trap cleanup EXIT
+
 python3 - <<'PY' "$output_vrt" "${cogs[@]}" > "$tmp_list"
 import os
 import sys
 
 vrt_path = sys.argv[1]
-sources = sys.argv[2:]
+sources = sorted(sys.argv[2:])
 base_dir = os.path.dirname(vrt_path)
 
 for src in sources:
@@ -42,9 +51,8 @@ for src in sources:
 PY
 
 echo "Building VRT: $output_vrt"
-(cd "$(dirname "$output_vrt")" && gdalbuildvrt -input_file_list "$tmp_list" "$(basename "$output_vrt")")
+(cd "$(dirname "$output_vrt")" && gdalbuildvrt -input_file_list "$tmp_list" "$(basename "$tmp_vrt")")
 
-rm -f "$tmp_list"
-
-gdalinfo "$output_vrt" >/dev/null
+gdalinfo "$tmp_vrt" >/dev/null
+mv "$tmp_vrt" "$output_vrt"
 echo "VRT built successfully."

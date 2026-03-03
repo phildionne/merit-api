@@ -7,9 +7,8 @@ api_url="${API_URL:-http://localhost:8000}"
 api_key="${SMOKE_API_KEY:-${API_KEY:-}}"
 
 health_url="$api_url/health"
+ready_url="$api_url/ready"
 elev_url="$api_url/elevation?lat=46.8139&lng=-71.2080"
-river_width_url="$api_url/width"
-river_width_payload='{"points":[{"id":"p1","lat":46.8139,"lng":-71.2080},{"id":"p2","lat":0.0,"lng":0.0}]}'
 
 if ! command -v curl >/dev/null 2>&1; then
   echo "curl is required for smoke test" >&2
@@ -32,6 +31,18 @@ else
   echo "$health_resp" | grep -q '"ok"' && echo "$health_resp" | grep -q 'true'
 fi
 
+echo "Checking /ready"
+ready_resp="$(curl -sf "$ready_url")"
+
+echo "Ready response: $ready_resp"
+
+if command -v jq >/dev/null 2>&1; then
+  echo "$ready_resp" | jq -e 'has("ok") and has("dem_ready")' >/dev/null
+else
+  echo "$ready_resp" | grep -q '"ok"'
+  echo "$ready_resp" | grep -q '"dem_ready"'
+fi
+
 echo "Checking /elevation"
 elev_resp="$(curl -sf -H "X-API-Key: $api_key" "$elev_url")"
 
@@ -46,32 +57,6 @@ else
   echo "$elev_resp" | grep -q '"nodata"'
   echo "$elev_resp" | grep -q '"dataset"'
   echo "$elev_resp" | grep -q '"source"'
-fi
-
-echo "Checking /width"
-river_width_resp="$(curl -sf \
-  -H "X-API-Key: $api_key" \
-  -H "Content-Type: application/json" \
-  -d "$river_width_payload" \
-  "$river_width_url")"
-
-echo "River width response: $river_width_resp"
-
-if command -v jq >/dev/null 2>&1; then
-  echo "$river_width_resp" | jq -e '
-    has("points")
-    and (.points | type == "array")
-    and (.points | length == 2)
-    and (.points[0].id == "p1")
-    and (.points[1].id == "p2")
-    and (.points[0] | has("lat") and has("lng") and has("wth_raw") and has("nodata"))
-  ' >/dev/null
-else
-  echo "$river_width_resp" | grep -q '"points"'
-  echo "$river_width_resp" | grep -q '"id":"p1"'
-  echo "$river_width_resp" | grep -q '"id":"p2"'
-  echo "$river_width_resp" | grep -q '"wth_raw"'
-  echo "$river_width_resp" | grep -q '"nodata"'
 fi
 
 echo "Smoke test OK"

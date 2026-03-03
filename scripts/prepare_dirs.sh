@@ -7,7 +7,7 @@ mkdir -p "$base_dir/data/raw/downloads"
 mkdir -p "$base_dir/data/raw/extracted"
 mkdir -p "$base_dir/data/raw/tifs"
 
-for var in elv wth; do
+for var in elv; do
   mkdir -p "$base_dir/data/canada/$var/clipped"
   mkdir -p "$base_dir/data/canada/$var/cog"
 
@@ -21,15 +21,6 @@ if [ ! -f "$base_dir/data/raw/urls.elv.txt.example" ]; then
 # Add one URL per line after you have accepted the MERIT-Hydro license.
 # Example:
 # https://example.com/merit/elv/your-download-url.tar
-EOT
-fi
-
-if [ ! -f "$base_dir/data/raw/urls.wth.txt.example" ]; then
-  cat <<'EOT' > "$base_dir/data/raw/urls.wth.txt.example"
-# MERIT-Hydro river width download URLs (manual licensing required).
-# Add one URL per line after you have accepted the MERIT-Hydro license.
-# Example:
-# https://example.com/merit/wth/your-download-url.tar
 EOT
 fi
 

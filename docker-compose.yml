@@ -5,7 +5,6 @@ services:
       dockerfile: Dockerfile.api
     environment:
       DEM_PATH: /data/mosaic/canada_elv.vrt
-      WTH_PATH: /data/mosaic/canada_wth.vrt
       PORT: "8000"
       API_KEY: "${API_KEY:-dev-local-key}"
       ALLOWED_ORIGINS: "${ALLOWED_ORIGINS:-*}"

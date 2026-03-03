@@ -4,11 +4,11 @@ set -euo pipefail
 DISCO="${DISCO:-}"
 PROJECT="${PROJECT:-}"
 VOLUME="${VOLUME:-dem-data}"
-INCLUDE_VARS="${INCLUDE_VARS:-elv,wth}"
+INCLUDE_VARS="${INCLUDE_VARS:-elv}"
 
 if [[ -z "${DISCO}" || -z "${PROJECT}" ]]; then
   echo "Usage: DISCO=<disco-host> PROJECT=<project> $0"
-  echo "Optional: VOLUME=dem-data INCLUDE_VARS=elv,wth"
+  echo "Optional: VOLUME=dem-data INCLUDE_VARS=elv"
   exit 1
 fi
 
@@ -29,7 +29,7 @@ mkdir -p "${stage}/mosaic" "${stage}/canada"
 
 for raw_var in "${vars[@]}"; do
   var="$(printf '%s' "$raw_var" | tr -d '[:space:]')"
-  if [[ "$var" != "elv" && "$var" != "wth" ]]; then
+  if [[ "$var" != "elv" ]]; then
     echo "Unsupported variable in INCLUDE_VARS: $var" >&2
     exit 1
   fi

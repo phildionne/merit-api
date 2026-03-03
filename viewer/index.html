@@ -85,16 +85,184 @@
       text-align: right;
       font-variant-numeric: tabular-nums;
     }
+    .viewer-config {
+      position: absolute;
+      left: 10px;
+      bottom: 10px;
+      z-index: 1000;
+      width: min(320px, calc(100vw - 20px));
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid rgba(10, 42, 74, 0.25);
+      border-radius: 12px;
+      box-shadow: 0 12px 24px rgba(3, 6, 30, 0.2);
+      padding: 10px;
+      font: 12px/1.35 "IBM Plex Sans", system-ui, sans-serif;
+      color: #0a2a4a;
+    }
+    .viewer-config h2 {
+      font: 600 12px/1.2 "IBM Plex Sans", system-ui, sans-serif;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin: 0 0 8px;
+    }
+    .viewer-config label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .viewer-config input {
+      width: 100%;
+      box-sizing: border-box;
+      margin-top: 3px;
+      border: 1px solid rgba(10, 42, 74, 0.25);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font: 12px/1.2 "IBM Plex Mono", ui-monospace, monospace;
+      color: #032341;
+      background: rgba(255, 255, 255, 0.98);
+    }
+    .viewer-config .row {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .viewer-config button {
+      flex: 1;
+      border: 0;
+      border-radius: 8px;
+      padding: 7px 10px;
+      cursor: pointer;
+      font: 600 12px/1.2 "IBM Plex Sans", system-ui, sans-serif;
+    }
+    .viewer-config .save {
+      background: #0353a4;
+      color: #fff;
+    }
+    .viewer-config .reset {
+      background: rgba(10, 42, 74, 0.12);
+      color: #032341;
+    }
+    .viewer-config .hint {
+      margin-top: 8px;
+      font-size: 11px;
+      color: rgba(3, 35, 65, 0.75);
+    }
+    @media (max-width: 720px) {
+      .viewer-config {
+        bottom: 56px;
+      }
+      .elev-readout {
+        max-width: calc(100vw - 20px);
+      }
+    }
   </style>
 </head>
 <body>
 <div id="map"></div>
-<div class="elev-readout" id="elevReadout">Move mouse over map…</div>
+<div class="elev-readout" id="elevReadout">Move mouse over map...</div>
+<div class="viewer-config" id="viewerConfig">
+  <h2>Viewer Config</h2>
+  <label>
+    API base URL
+    <input id="cfgApiBase" type="text" placeholder="http://127.0.0.1:8000" />
+  </label>
+  <label>
+    Terracotta base URL
+    <input id="cfgTerracottaBase" type="text" placeholder="http://127.0.0.1:8080" />
+  </label>
+  <label>
+    API key (X-API-Key)
+    <input id="cfgApiKey" type="password" placeholder="dev-local-key" />
+  </label>
+  <div class="row">
+    <button class="save" id="cfgSave" type="button">Save</button>
+    <button class="reset" id="cfgReset" type="button">Reset</button>
+  </div>
+  <div class="hint">Supports query params: <code>?apiBase=&amp;terracottaBase=&amp;apiKey=</code></div>
+</div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+  const STORAGE_KEYS = {
+    apiBase: 'merit.viewer.apiBase',
+    terracottaBase: 'merit.viewer.terracottaBase',
+    apiKey: 'merit.viewer.apiKey'
+  };
+
+  function safeStorageGet(key) {
+    try {
+      return window.localStorage.getItem(key);
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function safeStorageSet(key, value) {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch (err) {
+      // Ignore storage failures in locked-down browser contexts.
+    }
+  }
+
+  function safeStorageRemove(key) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch (err) {
+      // Ignore storage failures in locked-down browser contexts.
+    }
+  }
+
+  function normalizeBaseUrl(raw, fallback) {
+    if (!raw) return fallback;
+    const trimmed = raw.trim();
+    if (!trimmed) return fallback;
+    return trimmed.replace(/\/+$/, '');
+  }
+
+  const envConfig = window.MERIT_CONFIG || {};
+  const params = new URLSearchParams(window.location.search);
+
+  const defaultConfig = {
+    apiBase: normalizeBaseUrl(envConfig.API_BASE, 'http://127.0.0.1:8000'),
+    terracottaBase: normalizeBaseUrl(envConfig.TERRACOTTA_BASE, 'http://127.0.0.1:8080'),
+    apiKey: (envConfig.API_KEY || '').trim()
+  };
+
+  const config = {
+    apiBase: normalizeBaseUrl(
+      params.get('apiBase') || safeStorageGet(STORAGE_KEYS.apiBase) || defaultConfig.apiBase,
+      defaultConfig.apiBase
+    ),
+    terracottaBase: normalizeBaseUrl(
+      params.get('terracottaBase') || safeStorageGet(STORAGE_KEYS.terracottaBase) || defaultConfig.terracottaBase,
+      defaultConfig.terracottaBase
+    ),
+    apiKey: (params.get('apiKey') || safeStorageGet(STORAGE_KEYS.apiKey) || defaultConfig.apiKey || '').trim()
+  };
+
   const map = L.map('map').setView([42.5, -58.0], 6);
   const elevEl = document.getElementById('elevReadout');
-  const apiBase = 'http://127.0.0.1:8000';
+
+  const configInputs = {
+    apiBase: document.getElementById('cfgApiBase'),
+    terracottaBase: document.getElementById('cfgTerracottaBase'),
+    apiKey: document.getElementById('cfgApiKey'),
+    save: document.getElementById('cfgSave'),
+    reset: document.getElementById('cfgReset')
+  };
+
+  function syncConfigInputs() {
+    configInputs.apiBase.value = config.apiBase;
+    configInputs.terracottaBase.value = config.terracottaBase;
+    configInputs.apiKey.value = config.apiKey;
+  }
+
+  function buildAuthHeaders() {
+    if (!config.apiKey) {
+      return {};
+    }
+    return { 'X-API-Key': config.apiKey };
+  }
 
   const baseLayers = {
     osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -154,10 +322,10 @@
 
   const overlayTileKey = 'mosaic';
   const overlayLayerKey = 'elvhypsometric';
-  const overlayLayer = L.tileLayer(
-    `http://127.0.0.1:8080/rgb/${overlayTileKey}/${overlayLayerKey}/{z}/{x}/{y}.png?r=r&g=g&b=b`,
-    { maxZoom: 12, opacity: 0.7 }
-  ).addTo(map);
+  const overlayUrl = () => `${config.terracottaBase}/rgb/${overlayTileKey}/${overlayLayerKey}/{z}/{x}/{y}.png?r=r&g=g&b=b`;
+
+  const overlayLayer = L.tileLayer(overlayUrl(), { maxZoom: 12, opacity: 0.7 }).addTo(map);
+  const datasetBoundsLayer = L.layerGroup().addTo(map);
 
   const OverlayOpacityControl = L.Control.extend({
     options: { position: 'bottomright' },
@@ -219,8 +387,9 @@
   }
 
   async function addDatasetBounds() {
+    datasetBoundsLayer.clearLayers();
     try {
-      const resp = await fetch('http://127.0.0.1:8080/datasets');
+      const resp = await fetch(`${config.terracottaBase}/datasets`);
       if (!resp.ok) return;
       const json = await resp.json();
       const datasets = Array.isArray(json.datasets) ? json.datasets : [];
@@ -228,7 +397,7 @@
         const tileId = ds.tile || ds.name || ds.id;
         const layerId = ds.layer;
         if (!tileId || tileId === 'mosaic') return;
-        if (layerId && layerId !== 'elvhypsometric') return;
+        if (layerId && layerId !== overlayLayerKey) return;
         const bounds = tileBounds(tileId);
         if (!bounds) return;
         L.rectangle(bounds, {
@@ -237,7 +406,7 @@
           fill: false,
           opacity: 0.9
         })
-          .addTo(map)
+          .addTo(datasetBoundsLayer)
           .bindTooltip(tileId, {
             permanent: true,
             direction: 'center',
@@ -249,38 +418,14 @@
     }
   }
 
-  addDatasetBounds();
-
-  const switcherButtons = document.querySelectorAll('.base-switcher__button');
-  switcherButtons.forEach((button) => {
-    button.addEventListener('click', () => {
-      if (button.classList.contains('is-active')) return;
-      switcherButtons.forEach((btn) => {
-        btn.classList.remove('is-active');
-        btn.setAttribute('aria-pressed', 'false');
-      });
-      button.classList.add('is-active');
-      button.setAttribute('aria-pressed', 'true');
-      Object.values(baseLayers).forEach((layer) => {
-        if (map.hasLayer(layer)) {
-          map.removeLayer(layer);
-        }
-      });
-      const target = button.dataset.layer;
-      if (baseLayers[target]) {
-        baseLayers[target].addTo(map);
-      }
-    });
-  });
-
-  let pending = null;
-  let lastLatLng = null;
-
   function formatElev(json) {
     if (json.nodata) return 'nodata';
     if (json.elevation_m === null || json.elevation_m === undefined) return 'null';
     return `${json.elevation_m.toFixed(2)} m`;
   }
+
+  let pending = null;
+  let lastLatLng = null;
 
   map.on('mousemove', (e) => {
     lastLatLng = e.latlng;
@@ -288,20 +433,58 @@
     pending = setTimeout(async () => {
       const { lat, lng } = lastLatLng;
       try {
-        const resp = await fetch(`${apiBase}/elevation?lat=${lat}&lng=${lng}`);
-        if (!resp.ok) {
-          elevEl.textContent = `lat ${lat.toFixed(4)}, lng ${lng.toFixed(4)} — error`;
+        const resp = await fetch(`${config.apiBase}/elevation?lat=${lat}&lng=${lng}`, {
+          headers: buildAuthHeaders()
+        });
+        if (resp.status === 401) {
+          elevEl.textContent = `lat ${lat.toFixed(4)}, lng ${lng.toFixed(4)} - unauthorized (set API key)`;
+        } else if (!resp.ok) {
+          elevEl.textContent = `lat ${lat.toFixed(4)}, lng ${lng.toFixed(4)} - error`;
         } else {
           const json = await resp.json();
-          elevEl.textContent = `lat ${lat.toFixed(4)}, lng ${lng.toFixed(4)} — ${formatElev(json)}`;
+          elevEl.textContent = `lat ${lat.toFixed(4)}, lng ${lng.toFixed(4)} - ${formatElev(json)}`;
         }
       } catch (err) {
-        elevEl.textContent = `lat ${lat.toFixed(4)}, lng ${lng.toFixed(4)} — error`;
+        elevEl.textContent = `lat ${lat.toFixed(4)}, lng ${lng.toFixed(4)} - error`;
       } finally {
         pending = null;
       }
     }, 150);
   });
+
+  function applyConfigFromInputs({ persist }) {
+    config.apiBase = normalizeBaseUrl(configInputs.apiBase.value, defaultConfig.apiBase);
+    config.terracottaBase = normalizeBaseUrl(configInputs.terracottaBase.value, defaultConfig.terracottaBase);
+    config.apiKey = configInputs.apiKey.value.trim();
+
+    if (persist) {
+      safeStorageSet(STORAGE_KEYS.apiBase, config.apiBase);
+      safeStorageSet(STORAGE_KEYS.terracottaBase, config.terracottaBase);
+      safeStorageSet(STORAGE_KEYS.apiKey, config.apiKey);
+    }
+
+    overlayLayer.setUrl(overlayUrl());
+    addDatasetBounds();
+  }
+
+  configInputs.save.addEventListener('click', () => {
+    applyConfigFromInputs({ persist: true });
+  });
+
+  configInputs.reset.addEventListener('click', () => {
+    config.apiBase = defaultConfig.apiBase;
+    config.terracottaBase = defaultConfig.terracottaBase;
+    config.apiKey = defaultConfig.apiKey;
+    safeStorageRemove(STORAGE_KEYS.apiBase);
+    safeStorageRemove(STORAGE_KEYS.terracottaBase);
+    safeStorageRemove(STORAGE_KEYS.apiKey);
+    syncConfigInputs();
+    overlayLayer.setUrl(overlayUrl());
+    addDatasetBounds();
+  });
+
+  syncConfigInputs();
+  addDatasetBounds();
 </script>
 </body>
 </html>

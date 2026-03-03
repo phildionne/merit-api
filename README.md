@@ -1,6 +1,6 @@
 # MERIT-API
 
-This repo provides an end-to-end workflow to **manually download MERIT-Hydro data**, preprocess it locally with GDAL into **COGs + VRT mosaics**, and run a **Docker-only FastAPI service** to query elevation and river width by latitude/longitude.
+This repo provides an end-to-end workflow to **manually download MERIT-Hydro data**, preprocess it locally with GDAL into **COGs + VRT mosaics**, and run a **Docker-only FastAPI service** to query elevation by latitude/longitude.
 
 **Important:** MERIT-Hydro downloads require a license/registration. This project **does not** bypass that gate. You must manually accept the license and supply your own download URLs or archives.
 
@@ -9,17 +9,14 @@ This repo provides an end-to-end workflow to **manually download MERIT-Hydro dat
 - Local preprocessing pipeline using GDAL
 - Output datasets (default bbox):
   - `data/canada/elv/cog/*.tif` (elevation COGs)
-  - `data/canada/wth/cog/*.tif` (width COGs)
   - `data/mosaic/canada_elv.vrt` (elevation VRT mosaic)
-  - `data/mosaic/canada_wth.vrt` (width VRT mosaic)
 - API
   - `GET /elevation?lat=<float>&lng=<float>`
   - `POST /elevation` with a batch payload
-  - `POST /width` with an ID-based batch payload
 
 ## Default BBox (EPSG:4326)
 
-This BBbox is used by the clip script to reduce file size; configurable via env vars:
+This bbox is used by the clip script to reduce file size; configurable via env vars:
 
 - `BBOX_MIN_LON=-80.0`
 - `BBOX_MIN_LAT=41.0`
@@ -42,7 +39,6 @@ brew install gdal
 - Creates the full data directory layout under `data/`
 - Creates variable URL templates:
   - `data/raw/urls.elv.txt.example`
-  - `data/raw/urls.wth.txt.example`
 
 ```bash
 ./scripts/check_deps.sh
@@ -56,9 +52,8 @@ brew install gdal
 - Elevation examples (covers the default bbox -80 to -55 lon, 41 to 63 lat):
   - N60–N90: `elv_n60w090.tar`, `elv_n60w060.tar`
   - N30–N60: `elv_n30w090.tar`, `elv_n30w060.tar`
-- Width archives should follow the same MERIT naming convention with `_wth`.
 
-### 5. Unpack and discover
+### 4. Unpack and discover
 
 - Unpacks archives into shared `data/raw/extracted/`.
 - Finds `.tif`/`.tiff` and symlinks them into shared `data/raw/tifs/`.
@@ -68,46 +63,49 @@ brew install gdal
 ./scripts/unpack_and_discover.sh
 ```
 
-### 6. Clip to bbox by variable
+### 5. Clip to bbox
 
 - Clips each input raster to the configured bbox
 - Reprojects to EPSG:4326 if needed
 - Deletes fully nodata outputs (empty clips)
 
 ```bash
-MERIT_VAR=elv ./scripts/clip_canada.sh
-MERIT_VAR=wth ./scripts/clip_canada.sh
+./scripts/clip_canada.sh
 ```
 
-### 7. COGify the clipped tiles by variable
+### 6. COGify the clipped tiles
 
 - Converts each clipped raster into a Cloud-Optimized GeoTIFF (COG)
 - Skips if output is newer than input
 - COGs use moderate lossless compression (`COMPRESS=ZSTD`, `LEVEL=9`, `PREDICTOR=3`) and disable overviews (`OVERVIEWS=NONE`) to reduce storage usage
 
 ```bash
-MERIT_VAR=elv ./scripts/cogify.sh
-MERIT_VAR=wth ./scripts/cogify.sh
+./scripts/cogify.sh
 ```
 
-### 8. Build VRT mosaics by variable
+### 7. Build VRT mosaics
 
 Builds variable-specific mosaics from COGs using `gdalbuildvrt`:
 
 ```bash
-MERIT_VAR=elv ./scripts/build_vrt.sh
-MERIT_VAR=wth ./scripts/build_vrt.sh
+./scripts/build_vrt.sh
 ```
 
-### 9. Run the API
+The script is incremental: it rebuilds when source COGs are newer than the target VRT. Use `FORCE=1` to rebuild unconditionally.
 
-This exposes both the API and a terracota tile server:
+### 8. Run the API
+
+This exposes both the API and a Terracotta tile server:
 
 ```bash
 docker compose up --build
 ```
 
-- **GET `/health`** returns `{ "ok": true }`.
+- **GET `/health`** is liveness-only and always returns HTTP 200 with `{ "ok": true, "status": "alive" }`.
+- **GET `/ready`** is readiness and returns:
+  - HTTP 200 when DEM is available.
+  - HTTP 503 when DEM is unavailable.
+  - A payload like `{ "ok": false, "dem_ready": false }`.
 - **GET `/elevation?lat=&lng=`**:
   - If out of bounds: returns HTTP 400.
   - If nodata: returns `elevation_m: null` and `nodata: true`.
@@ -115,16 +113,6 @@ docker compose up --build
   - Accepts `{ "points": [ {"lat":..,"lng":..}, ... ] }`.
   - Returns `{ "points": [ ... ] }` with per-point results.
   - If a point is out of bounds, the response includes `"error": "out_of_bounds"` for that point.
-- **POST `/width`**:
-  - Accepts `{ "points": [ {"id":"p1","lat":..,"lng":..}, ... ] }`.
-  - Returns `{ "points": [ ... ] }` with one result per input point in the same order.
-  - Each result includes `id`, `lat`, `lng`, `wth_raw`, and `nodata`.
-  - If a point is out of bounds, the response includes `"error": "out_of_bounds"` for that point.
-  - `wth_raw` semantics:
-    - `> 0`: centerline river width in meters
-    - `-1`: non-centerline water pixel
-    - `0`: non-water pixel
-    - `-9999`: undefined/ocean nodata
 
 Sampling uses **nearest-neighbor** (no bilinear smoothing) for stability and speed.
 
@@ -134,12 +122,6 @@ Sampling uses **nearest-neighbor** (no bilinear smoothing) for stability and spe
 # Elevation (single point)
 curl -H "X-API-Key: dev-local-key" \
   "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"
-
-# Width (batch with IDs)
-curl -H "X-API-Key: dev-local-key" \
-  -H "Content-Type: application/json" \
-  -d '{"points":[{"id":"p1","lat":46.8139,"lng":-71.2080},{"id":"p2","lat":46.90,"lng":-71.10}]}' \
-  "http://localhost:8000/width"
 ```
 
 ## Authentication
@@ -159,7 +141,6 @@ Required environment variables:
 
 - `API_KEY` (required): shared secret for `X-API-Key`
 - `DEM_PATH` (required): path to the elevation VRT mosaic (default `/data/mosaic/canada_elv.vrt`)
-- `WTH_PATH` (required for `/width`): path to the width VRT mosaic (default `/data/mosaic/canada_wth.vrt`)
 
 Optional:
 
@@ -182,7 +163,6 @@ docker build -f Dockerfile.api -t merit-api .
 docker run --rm -p 8000:8000 \
   -e API_KEY="your-secret-key" \
   -e DEM_PATH="/data/mosaic/canada_elv.vrt" \
-  -e WTH_PATH="/data/mosaic/canada_wth.vrt" \
   -e WEB_CONCURRENCY="2" \
   -v "$(pwd)/data:/data:ro" \
   merit-api
@@ -193,11 +173,6 @@ docker run --rm -p 8000:8000 \
 ```bash
 curl -H "X-API-Key: your-secret-key" \
   "http://localhost:8000/elevation?lat=46.8139&lng=-71.2080"
-
-curl -H "X-API-Key: your-secret-key" \
-  -H "Content-Type: application/json" \
-  -d '{"points":[{"id":"p1","lat":46.8139,"lng":-71.2080}]}' \
-  "http://localhost:8000/width"
 ```
 
 ## Production deployment (Disco)
@@ -217,7 +192,7 @@ disco deploy --project <your-project> --disco <your-disco>
 2. Import selected variable datasets into the `dem-data` volume:
 
 ```bash
-DISCO=<your-disco> PROJECT=<your-project> INCLUDE_VARS=elv,wth \
+DISCO=<your-disco> PROJECT=<your-project> INCLUDE_VARS=elv \
   ./scripts/disco_import_data.sh
 ```
 
@@ -227,11 +202,10 @@ Set these in your Disco project environment:
 
 - `API_KEY` (required)
 - `DEM_PATH=/data/mosaic/canada_elv.vrt`
-- `WTH_PATH=/data/mosaic/canada_wth.vrt` (required for `/width`)
 
-## Terracotta usage (optional visualization)
+## Terracotta usage (overlay-first visualization)
 
-Terracotta serves tiles from the COGs for quick visualization. It does **not** replace the FastAPI elevation API.
+Terracotta is configured in this repo for the overlay workflow (`/data/overlays/{tile}_{layer}_{band}.vrt`). It does **not** replace the FastAPI elevation API.
 
 ### Quick serve (no DB)
 
@@ -245,18 +219,25 @@ docker compose up --build terracotta
 curl http://127.0.0.1:8080/datasets
 ```
 
-Example response:
+Example response for the overlay registry:
 
 ```json
-{ "datasets": [{ "tile": "n40w060" }], "limit": 100, "page": 0 }
+{ "datasets": [{ "tile": "mosaic", "layer": "elvhypsometric", "band": "r" }], "limit": 100, "page": 0 }
 ```
 
-### Tile URL template
+### Overlay tile URL template
 
-Once you know a dataset key (e.g. `n40w060`), the tile URL is:
+The viewer uses:
 
 ```
-http://127.0.0.1:8080/singleband/n40w060/{z}/{x}/{y}.png
+http://127.0.0.1:8080/rgb/mosaic/elvhypsometric/{z}/{x}/{y}.png?r=r&g=g&b=b
+```
+
+Run these once before serving overlays:
+
+```bash
+./scripts/make_hypsometric_overlay.sh
+./scripts/build_overlay_band_vrts.sh
 ```
 
 ## Viewer
@@ -265,7 +246,8 @@ The repo includes `viewer/index.html`, a simple static viewer with:
 
 - A basemap for context
 - The Terracotta elevation tile layer
-- A live elevation readout that calls the FastAPI `/elevation` endpoint
+- A live elevation readout that calls the FastAPI `/elevation` endpoint with `X-API-Key`
+- An in-page config panel for API base URL, Terracotta base URL, and API key
 
 ### Run it
 
@@ -278,6 +260,12 @@ python3 -m http.server 63783 -d viewer
 ```
 
 Open: `http://localhost:63783/`
+
+The viewer supports three configuration sources (highest priority first):
+
+1. Query params (`?apiBase=...&terracottaBase=...&apiKey=...`)
+2. `localStorage` (saved by the in-page config panel)
+3. `window.MERIT_CONFIG` template object (`API_BASE`, `TERRACOTTA_BASE`, `API_KEY`)
 
 ## Hypsometric overlay workflow (pre-colored)
 
@@ -340,7 +328,7 @@ If a clipped raster is fully nodata, it is deleted automatically. This can happe
 The VRT references the COG file paths at build time. If you move or delete COGs, or the API runs in Docker with `/data` mounted, rebuild the VRT using:
 
 ```bash
-MERIT_VAR=elv ./scripts/build_vrt.sh
+./scripts/build_vrt.sh
 ```
 
 ## Data size & storage
@@ -355,9 +343,7 @@ MERIT-Hydro tiles can be large. The workflow stores:
 After you validate your VRTs and API, you can consider deleting intermediate clips to save space, keeping only:
 
 - `data/canada/elv/cog/`
-- `data/canada/wth/cog/`
 - `data/mosaic/canada_elv.vrt`
-- `data/mosaic/canada_wth.vrt`
 
 Use this helper to remove intermediate files in one step:
 
@@ -370,9 +356,22 @@ It removes:
 - `data/raw/extracted/*`
 - `data/raw/tifs/*`
 - `data/canada/elv/clipped/*`
-- `data/canada/wth/clipped/*`
 
 ## Next steps
 
 - Build a tile index to route queries to a single COG instead of a VRT for faster I/O.
 - Swap MERIT-Hydro for higher-resolution HRDEM tiles where available.
+
+## Dependency maintenance
+
+- `Dockerfile.terracotta` pins Terracotta to a specific version for reproducible builds.
+- Recommended update cadence: review and bump pinned service/runtime dependencies monthly or during planned release windows.
+
+## Tests
+
+Contract tests cover readiness semantics, auth, out-of-bounds handling, and endpoint removal behavior.
+
+```bash
+python3 -m pip install -r api/requirements-dev.txt
+python3 -m unittest discover -s tests -v
+```
