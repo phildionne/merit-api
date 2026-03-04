@@ -210,7 +210,7 @@ disco deploy --project <your-project> --disco <your-disco>
 2. Import selected variable datasets into the `dem-data` volume:
 
 ```bash
-DISCO=<your-disco> PROJECT=<your-project> INCLUDE_VARS=elv \
+DISCO=<your-disco> PROJECT=<your-project> \
   ./scripts/disco_import_data.sh
 ```
 

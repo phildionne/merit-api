@@ -4,17 +4,10 @@ set -euo pipefail
 DISCO="${DISCO:-}"
 PROJECT="${PROJECT:-}"
 VOLUME="${VOLUME:-dem-data}"
-INCLUDE_VARS="${INCLUDE_VARS:-elv}"
 
 if [[ -z "${DISCO}" || -z "${PROJECT}" ]]; then
   echo "Usage: DISCO=<disco-host> PROJECT=<project> $0"
-  echo "Optional: VOLUME=dem-data INCLUDE_VARS=elv"
-  exit 1
-fi
-
-IFS=',' read -r -a vars <<< "$INCLUDE_VARS"
-if [ "${#vars[@]}" -eq 0 ]; then
-  echo "INCLUDE_VARS is empty" >&2
+  echo "Optional: VOLUME=dem-data"
   exit 1
 fi
 
@@ -27,29 +20,22 @@ trap cleanup EXIT
 
 mkdir -p "${stage}/mosaic" "${stage}/canada"
 
-for raw_var in "${vars[@]}"; do
-  var="$(printf '%s' "$raw_var" | tr -d '[:space:]')"
-  if [[ "$var" != "elv" ]]; then
-    echo "Unsupported variable in INCLUDE_VARS: $var" >&2
-    exit 1
-  fi
+var="elv"
+src_mosaic="./data/mosaic/canada_${var}.vrt"
+src_canada="./data/canada/${var}"
 
-  src_mosaic="./data/mosaic/canada_${var}.vrt"
-  src_canada="./data/canada/${var}"
+if [[ ! -f "${src_mosaic}" ]]; then
+  echo "Missing file: ${src_mosaic}" >&2
+  exit 1
+fi
 
-  if [[ ! -f "${src_mosaic}" ]]; then
-    echo "Missing file: ${src_mosaic}" >&2
-    exit 1
-  fi
+if [[ ! -d "${src_canada}" ]]; then
+  echo "Missing directory: ${src_canada}" >&2
+  exit 1
+fi
 
-  if [[ ! -d "${src_canada}" ]]; then
-    echo "Missing directory: ${src_canada}" >&2
-    exit 1
-  fi
-
-  cp -R "${src_mosaic}" "${stage}/mosaic/"
-  cp -R "${src_canada}" "${stage}/canada/"
-done
+cp -R "${src_mosaic}" "${stage}/mosaic/"
+cp -R "${src_canada}" "${stage}/canada/"
 
 tar -C "${stage}" -czf "${tarball}" .
 
