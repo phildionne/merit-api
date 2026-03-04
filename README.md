@@ -207,10 +207,10 @@ Disco volumes are created on first deploy based on `disco.json`. After the first
 disco deploy --project <your-project> --disco <your-disco>
 ```
 
-2. Import selected variable datasets into the `dem-data` volume:
+2. Import selected variable datasets into your target volume:
 
 ```bash
-DISCO=<your-disco> PROJECT=<your-project> \
+DISCO=<your-disco> PROJECT=<your-project> VOLUME=<your-volume-id> \
   ./scripts/disco_import_data.sh
 ```
 
