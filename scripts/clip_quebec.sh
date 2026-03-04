@@ -6,10 +6,10 @@ base_dir="$(cd "$(dirname "$0")/.." && pwd)"
 src_dir="$base_dir/data/raw/tifs"
 out_dir="$base_dir/data/canada/elv/clipped"
 
-bbox_min_lon="${BBOX_MIN_LON:--80.0}"
-bbox_min_lat="${BBOX_MIN_LAT:-41.0}"
-bbox_max_lon="${BBOX_MAX_LON:--55.0}"
-bbox_max_lat="${BBOX_MAX_LAT:-63.0}"
+bbox_min_lon="${BBOX_MIN_LON:--82}"
+bbox_min_lat="${BBOX_MIN_LAT:-43}"
+bbox_max_lon="${BBOX_MAX_LON:--51}"
+bbox_max_lat="${BBOX_MAX_LAT:-63}"
 
 parallel="${PARALLEL:-4}"
 
