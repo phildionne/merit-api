@@ -17,10 +17,10 @@ This repo provides an end-to-end workflow to **manually download MERIT-Hydro dat
 
 This bbox is used by the clip script to reduce file size; configurable via env vars:
 
-- `BBOX_MIN_LON=-80.0`
-- `BBOX_MIN_LAT=41.0`
-- `BBOX_MAX_LON=-55.0`
-- `BBOX_MAX_LAT=63.0`
+- `BBOX_MIN_LON=-82`
+- `BBOX_MIN_LAT=43`
+- `BBOX_MAX_LON=-51`
+- `BBOX_MAX_LAT=63`
 
 ## Quickstart
 
@@ -48,7 +48,7 @@ brew install gdal
 
 - Register/accept MERIT-Hydro license and obtain download credentials
 - Download MERIT archives into `data/raw/downloads/`.
-- Elevation examples (covers the default bbox -80 to -55 lon, 41 to 63 lat):
+- These cover the default BBox:
   - N60–N90: `elv_n60w090.tar`, `elv_n60w060.tar`
   - N30–N60: `elv_n30w090.tar`, `elv_n30w060.tar`
 
@@ -69,7 +69,7 @@ brew install gdal
 - Deletes fully nodata outputs (empty clips)
 
 ```bash
-./scripts/clip_canada.sh
+./scripts/clip_quebec.sh
 ```
 
 ### 6. COGify the clipped tiles
