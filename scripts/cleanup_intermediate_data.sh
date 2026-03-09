@@ -7,7 +7,6 @@ paths=(
   "$base_dir/data/raw/extracted"
   "$base_dir/data/raw/tifs"
   "$base_dir/data/canada/elv/clipped"
-  "$base_dir/data/canada/clipped"
 )
 
 purge_dir_contents() {

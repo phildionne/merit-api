@@ -146,6 +146,20 @@ Response shape:
 
 Note: Sampling uses **nearest-neighbor** (no bilinear smoothing) for stability and speed.
 
+#### Summarize coverage quality for a GeoJSON line
+
+Evaluate a single GeoJSON `LineString` against the same DEM sampling semantics as the API and aggregate the existing quality fields:
+
+```bash
+python3 scripts/summarize_coverage_quality.py --json /tmp/wheeler-smoothed.geojson
+```
+
+The summary reports:
+- geometry and vertex count
+- line bbox versus DEM bounds
+- `quality.total`, `quality.ok`, `quality.nodata`, `quality.out_of_coverage`, and `quality.coverage_ratio`
+- whether the input would require chunking under the current `MAX_BATCH`
+
 ## Authentication
 
 All data endpoints require an API key via the `X-API-Key` header. The server can start without `API_KEY`, but authenticated data requests return HTTP 503 until `API_KEY` is configured.
