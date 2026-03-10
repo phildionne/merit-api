@@ -11,3 +11,8 @@ data/
 **/*.pyo
 **/*.pyd
 *.log
+tests/
+viewer/
+scripts/
+README.md
+docker-compose.yml
