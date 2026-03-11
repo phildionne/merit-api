@@ -162,7 +162,13 @@ def _build_quality(statuses: Sequence[str]) -> QualityResponse:
 
 
 def _build_profile_response(coords: Sequence[Tuple[float, float]], request: Request) -> ElevationProfileResponse:
-    results = [dem.sample_point(lat, lng) for lat, lng in coords]
+    try:
+        results = [dem.sample_point(lat, lng) for lat, lng in coords]
+    except RasterioIOError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="DEM dataset not available",
+        )
     chainages = _build_chainage_m(coords)
 
     points = [

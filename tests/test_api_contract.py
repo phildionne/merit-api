@@ -100,6 +100,19 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["detail"], "API key not configured")
 
+    def test_post_elevations_returns_503_when_dem_read_fails_during_sampling(self):
+        with patch.object(app_module.dem, "_open_dataset", return_value=object()):
+            with patch.object(app_module.dem, "sample_point", side_effect=RasterioIOError("tile missing")):
+                with TestClient(app_module.app) as client:
+                    response = client.post(
+                        "/elevations",
+                        headers={"X-API-Key": "test-api-key"},
+                        json={"points": [{"lat": 46.8139, "lng": -71.2080}]},
+                    )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"], "DEM dataset not available")
+
     def test_post_elevations_out_of_coverage_returns_200(self):
         with patch.object(app_module.dem, "_open_dataset", return_value=object()):
             with patch.object(

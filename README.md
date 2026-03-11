@@ -24,6 +24,12 @@ brew install gdal
 ./scripts/prepare_dirs.sh
 ```
 
+Canonical local elevation layout after bootstrap:
+
+- `data/canada/elv/clipped/`
+- `data/canada/elv/cog/`
+- `data/mosaic/canada_elv.vrt`
+
 ### 3. Manual download step
 
 **Important:** MERIT-Hydro downloads require a license/registration. This project **does not** bypass that gate.
