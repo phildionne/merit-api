@@ -137,6 +137,8 @@ All data endpoints require an API key via the `X-API-Key` header.
 
 Railway builds the API from `Dockerfile.api`, mounts the persistent DEM volume at `/data`, and exposes the public domain for the FastAPI service.
 
+Railway service configuration is versioned in [`railway.json`](railway.json).
+
 ### 1. Install, login, and link the repo
 
 Install the Railway CLI if needed:
@@ -167,7 +169,7 @@ At minimum, set the shared API key:
 railway variable set API_KEY="your-secret-key" --service merit-api
 ```
 
-If you are creating the service from scratch, make sure it has:
+If you are creating the service from scratch, `railway.json` already declares the core service shape. In Railway, make sure the service also has:
 
 - builder: `DOCKERFILE`
 - dockerfile path: `/Dockerfile.api`
