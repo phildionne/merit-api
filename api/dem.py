@@ -4,14 +4,29 @@ from typing import Dict, Optional, Tuple
 
 import rasterio
 
+from .logging import get_logger
+
 _DEM_PATH = os.getenv("DEM_PATH", "/data/mosaic/canada_elv.vrt")
 _dataset = None
+logger = get_logger(__name__)
 
 
 def _open_dataset():
     global _dataset
     if _dataset is None:
+        logger.info(
+            "opening_dem_dataset",
+            extra={
+                "event": "opening_dem_dataset",
+            },
+        )
         _dataset = rasterio.open(_DEM_PATH)
+        logger.info(
+            "dem_dataset_opened",
+            extra={
+                "event": "dem_dataset_opened",
+            },
+        )
     return _dataset
 
 

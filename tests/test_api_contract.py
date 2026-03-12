@@ -254,10 +254,12 @@ class ApiContractTests(unittest.TestCase):
         echoed_payload = echoed.json()
         generated_payload = generated.json()
 
+        self.assertEqual(echoed.headers["x-request-id"], "req-123")
         self.assertEqual(echoed_payload["source"]["request_id"], "req-123")
         generated_request_id = generated_payload["source"]["request_id"]
         self.assertTrue(generated_request_id)
         uuid.UUID(generated_request_id)
+        self.assertEqual(generated.headers["x-request-id"], generated_request_id)
 
     def test_width_endpoint_removed_returns_404(self):
         with TestClient(app_module.app) as client:

@@ -1,3 +1,4 @@
+import logging
 import math
 import os
 import uuid
@@ -11,6 +12,10 @@ from pydantic import BaseModel, Field, field_serializer, model_validator
 from rasterio.errors import RasterioIOError
 
 from . import dem
+from .logging import clear_request_id, configure_logging, get_logger, set_request_id
+
+configure_logging()
+logger = get_logger(__name__)
 
 app = FastAPI(title="MERIT-Hydro API")
 
@@ -180,14 +185,83 @@ def _build_profile_response(coords: Sequence[Tuple[float, float]], request: Requ
         for idx, result in enumerate(results)
     ]
     statuses = [point.status for point in points]
-    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    request_id = getattr(request.state, "request_id", None) or request.headers.get("x-request-id") or str(uuid.uuid4())
+    coverage = _build_quality(statuses)
+
+    logger.info(
+        "elevation_profile_generated",
+        extra={
+            "event": "elevation_profile_generated",
+            "request_id": request_id,
+            "point_count": len(coords),
+            "line_length_m": chainages[-1] if chainages else 0.0,
+            "coverage_ratio": coverage.coverage_ratio,
+        },
+    )
 
     return ElevationProfileResponse(
         version=1,
         source=SourceMetaResponse(generated_at=datetime.now(timezone.utc), request_id=request_id),
         line_length_m=chainages[-1] if chainages else 0.0,
         points=points,
-        quality=_build_quality(statuses),
+        quality=coverage,
+    )
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    set_request_id(request_id)
+
+    started_at = datetime.now(timezone.utc)
+    response = None
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = round((datetime.now(timezone.utc) - started_at).total_seconds() * 1000, 3)
+        logger.exception(
+            "request_failed",
+            extra={
+                "event": "request_failed",
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "duration_ms": duration_ms,
+                "client_ip": request.client.host if request.client else None,
+            },
+        )
+        raise
+    finally:
+        if response is not None:
+            response.headers["X-Request-ID"] = request_id
+            duration_ms = round((datetime.now(timezone.utc) - started_at).total_seconds() * 1000, 3)
+            log_level = logging.INFO if response.status_code < 400 else logging.WARNING if response.status_code < 500 else logging.ERROR
+            logger.log(
+                log_level,
+                "request_completed",
+                extra={
+                    "event": "request_completed",
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status_code": response.status_code,
+                    "duration_ms": duration_ms,
+                    "client_ip": request.client.host if request.client else None,
+                },
+            )
+        clear_request_id()
+    return response
+
+
+@app.on_event("startup")
+def log_startup() -> None:
+    logger.info(
+        "application_started",
+        extra={
+            "event": "application_started",
+            "api_key_configured": api_key_is_configured(),
+        },
     )
 
 
@@ -203,6 +277,14 @@ def ready(response: Response):
     service_ready = dem_ready and api_key_is_configured()
     if not service_ready:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    logger.info(
+        "readiness_checked",
+        extra={
+            "event": "readiness_checked",
+            "dem_ready": dem_ready,
+            "api_key_configured": api_key_is_configured(),
+        },
+    )
     return ReadyResponse(
         ok=service_ready,
         dem_ready=dem_ready,

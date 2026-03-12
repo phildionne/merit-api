@@ -203,6 +203,8 @@ railway service status --service merit-api --json
 railway logs --service merit-api --lines 100 --json
 ```
 
+The API emits structured JSON logs to `stdout`/`stderr` so Railway can index custom fields. The canonical fields are `level`, `message`, `request_id`, `event`, `path`, `status_code`, and `duration_ms`, which makes filters like `@level:error`, `@event:request_completed`, and `@request_id:<id>` usable in Railway Observability.
+
 ### 4. Build the Railway import tarball
 
 Package only the files the API needs on the persistent volume. The production VRT expects the canonical layout below inside the mounted volume:
