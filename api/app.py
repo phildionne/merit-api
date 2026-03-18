@@ -1,122 +1,64 @@
-import logging
-import math
-import os
-import uuid
-from datetime import datetime, timezone
-from typing import List, Literal, Sequence, Tuple
+from __future__ import annotations
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+import logging
+import time
+import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+
+from fastapi import Depends, FastAPI, Header, Request, Response, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import APIKeyHeader
-from pydantic import BaseModel, Field, field_serializer, model_validator
 from rasterio.errors import RasterioIOError
 
 from . import dem
+from .config import AppConfig
+from .errors import ApiError, error_response, request_id_from_request
 from .logging import clear_request_id, configure_logging, get_logger, set_request_id
-
-configure_logging()
-logger = get_logger(__name__)
-
-app = FastAPI(title="MERIT-Hydro API")
-
-API_KEY = (os.getenv("API_KEY") or "").strip()
-MAX_BATCH = int(os.getenv("MAX_BATCH", "1000"))
-_origins_env = (os.getenv("ALLOWED_ORIGINS") or "*").strip()
-ALLOWED_ORIGINS = ["*"] if _origins_env == "*" else [o.strip() for o in _origins_env.split(",") if o.strip()]
-EARTH_RADIUS_M = 6371008.8
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"]
+from .models import (
+    ElevationProfileResponse,
+    ElevationsRequestBody,
+    HealthResponse,
+    ProfilePointResponse,
+    QualityResponse,
+    ReadyResponse,
+    SourceMetaResponse,
 )
+from . import profile as profile_module
 
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
-
-
-def api_key_is_configured() -> bool:
-    return bool(API_KEY)
-
-
-def require_api_key(api_key: str = Depends(api_key_header)) -> None:
-    if not api_key_is_configured():
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="API key not configured",
-        )
-    if api_key != API_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized",
-        )
+EARTH_RADIUS_M = profile_module.EARTH_RADIUS_M
+CHAINAGE_EPSILON_M = profile_module.CHAINAGE_EPSILON_M
+MAX_LINE_LENGTH_M = profile_module.MAX_LINE_LENGTH_M
+_haversine_distance_m = profile_module.haversine_distance_m
+_build_chainage_m = profile_module.build_chainage_m
+_build_sample_chainages_m = profile_module.build_sample_chainages_m
+_interpolate_samples_along_line = profile_module.interpolate_samples_along_line
+_build_quality = profile_module.build_quality
 
 
-class Point(BaseModel):
-    lat: float = Field(..., ge=-90, le=90, description="Latitude in EPSG:4326")
-    lng: float = Field(..., ge=-180, le=180, description="Longitude in EPSG:4326")
+def api_key_is_configured(config: AppConfig) -> bool:
+    return bool(config.api_key)
 
 
-class BatchRequest(BaseModel):
-    points: List[Point]
-
-    @model_validator(mode="after")
-    def validate_size(self):
-        if len(self.points) > MAX_BATCH:
-            raise ValueError(f"Too many points; max is {MAX_BATCH}")
-        return self
-
-
-class HealthResponse(BaseModel):
-    ok: bool
-    status: Literal["alive"]
-
-
-class ReadyResponse(BaseModel):
-    ok: bool
-    dem_ready: bool
-
-
-class ProfilePointResponse(BaseModel):
-    chainage_m: float
-    elevation_m: float | None = None
-    status: Literal["ok", "nodata", "out_of_coverage"]
-
-
-class SourceMetaResponse(BaseModel):
-    generated_at: datetime
-    request_id: str
-
-    @field_serializer("generated_at")
-    def serialize_generated_at(self, generated_at: datetime) -> str:
-        return generated_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-class QualityResponse(BaseModel):
-    total: int
-    ok: int
-    nodata: int
-    out_of_coverage: int
-    coverage_ratio: float
-
-
-class ElevationProfileResponse(BaseModel):
-    version: Literal[1]
-    source: SourceMetaResponse
-    line_length_m: float
-    points: List[ProfilePointResponse]
-    quality: QualityResponse
+def require_api_key(
+    request: Request,
+    x_api_key: str | None = Header(default=None),
+) -> None:
+    config: AppConfig = request.app.state.config
+    if not api_key_is_configured(config):
+        raise ApiError("not_ready", "API key not configured", status.HTTP_503_SERVICE_UNAVAILABLE)
+    if not x_api_key:
+        raise ApiError("unauthorized", "Missing X-API-Key header", status.HTTP_401_UNAUTHORIZED)
+    if x_api_key.strip() != config.api_key:
+        raise ApiError("unauthorized", "Invalid API key", status.HTTP_401_UNAUTHORIZED)
 
 
 def ensure_dataset_available() -> None:
     try:
         dem._open_dataset()
     except RasterioIOError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="DEM dataset not available",
-        )
+        raise ApiError("not_ready", "DEM dataset not available", status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
 def dataset_is_available(dataset_opener) -> bool:
@@ -127,66 +69,73 @@ def dataset_is_available(dataset_opener) -> bool:
         return False
 
 
-def _haversine_distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    lat1_r = math.radians(lat1)
-    lat2_r = math.radians(lat2)
-    dlat = lat2_r - lat1_r
-    dlng = math.radians(lng2 - lng1)
-    a = math.sin(dlat / 2.0) ** 2 + math.cos(lat1_r) * math.cos(lat2_r) * math.sin(dlng / 2.0) ** 2
-    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
-    return EARTH_RADIUS_M * c
+def _extract_line_coords(payload) -> list[tuple[float, float]]:
+    return [(lat, lng) for lng, lat in payload.features[0].geometry.coordinates]
 
 
-def _build_chainage_m(points: Sequence[Tuple[float, float]]) -> List[float]:
-    if not points:
-        return []
-
-    chainage = [0.0]
-    total = 0.0
-    for idx in range(1, len(points)):
-        prev_lat, prev_lng = points[idx - 1]
-        lat, lng = points[idx]
-        total += _haversine_distance_m(prev_lat, prev_lng, lat, lng)
-        chainage.append(total)
-    return chainage
+def _sample_profile_results(points: list[tuple[float, float]]) -> list[dict[str, float | str | None]]:
+    try:
+        return dem.sample_points(points)
+    except RasterioIOError:
+        raise ApiError("not_ready", "DEM dataset not available", status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
-def _build_quality(statuses: Sequence[str]) -> QualityResponse:
-    total = len(statuses)
-    ok = statuses.count("ok")
-    nodata = statuses.count("nodata")
-    out_of_coverage = statuses.count("out_of_coverage")
-    coverage_ratio = round(ok / total, 10) if total > 0 else 0.0
-    return QualityResponse(
-        total=total,
-        ok=ok,
-        nodata=nodata,
-        out_of_coverage=out_of_coverage,
-        coverage_ratio=coverage_ratio,
+def _build_profile_point(
+    chainage_m: float,
+    sampled_result: dict[str, float | str | None],
+) -> ProfilePointResponse:
+    return ProfilePointResponse(
+        chainage_m=chainage_m,
+        elevation_m=sampled_result["elevation_m"],
+        status=sampled_result["status"],
     )
 
 
-def _build_profile_response(coords: Sequence[Tuple[float, float]], request: Request) -> ElevationProfileResponse:
-    try:
-        results = [dem.sample_point(lat, lng) for lat, lng in coords]
-    except RasterioIOError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="DEM dataset not available",
-        )
-    chainages = _build_chainage_m(coords)
+def _build_profile_response(
+    line_coords: list[tuple[float, float]],
+    coords: list[tuple[float, float]],
+    chainages: list[float],
+    line_length_m: float,
+    request: Request,
+    logger,
+) -> ElevationProfileResponse:
+    start_lat, start_lng = line_coords[0]
+    end_lat, end_lng = line_coords[-1]
+    endpoint_already_sampled = bool(chainages) and abs(chainages[-1] - line_length_m) <= CHAINAGE_EPSILON_M
+    include_end_point = abs(line_length_m) > CHAINAGE_EPSILON_M and not endpoint_already_sampled
 
+    sampled_coords = [(start_lat, start_lng), *coords]
+    if include_end_point:
+        sampled_coords.append((end_lat, end_lng))
+    sampled_results = _sample_profile_results(sampled_coords)
+
+    start_point = _build_profile_point(0.0, sampled_results[0])
+    point_results = sampled_results[1 : 1 + len(coords)]
     points = [
-        ProfilePointResponse(
-            chainage_m=chainages[idx],
-            elevation_m=result["elevation_m"],
-            status=result["status"],
-        )
-        for idx, result in enumerate(results)
+        _build_profile_point(chainages[idx], result)
+        for idx, result in enumerate(point_results)
     ]
-    statuses = [point.status for point in points]
-    request_id = getattr(request.state, "request_id", None) or request.headers.get("x-request-id") or str(uuid.uuid4())
-    coverage = _build_quality(statuses)
+
+    if endpoint_already_sampled and points:
+        end_point = ProfilePointResponse(
+            chainage_m=line_length_m,
+            elevation_m=points[-1].elevation_m,
+            status=points[-1].status,
+        )
+    elif abs(line_length_m) <= CHAINAGE_EPSILON_M:
+        end_point = ProfilePointResponse(
+            chainage_m=0.0,
+            elevation_m=start_point.elevation_m,
+            status=start_point.status,
+        )
+    else:
+        end_point = _build_profile_point(line_length_m, sampled_results[-1])
+
+    statuses = [start_point.status, *[point.status for point in points]]
+    if include_end_point:
+        statuses.append(end_point.status)
+    request_id = request_id_from_request(request)
+    coverage = QualityResponse(**_build_quality(statuses))
 
     logger.info(
         "elevation_profile_generated",
@@ -194,105 +143,256 @@ def _build_profile_response(coords: Sequence[Tuple[float, float]], request: Requ
             "event": "elevation_profile_generated",
             "request_id": request_id,
             "point_count": len(coords),
-            "line_length_m": chainages[-1] if chainages else 0.0,
+            "line_length_m": line_length_m,
             "coverage_ratio": coverage.coverage_ratio,
         },
     )
 
     return ElevationProfileResponse(
         version=1,
-        source=SourceMetaResponse(generated_at=datetime.now(timezone.utc), request_id=request_id),
-        line_length_m=chainages[-1] if chainages else 0.0,
-        points=points,
+        source=SourceMetaResponse(generated_at=request.state.generated_at, request_id=request_id),
+        line_length_m=line_length_m,
         quality=coverage,
+        data={
+            "start_point": start_point,
+            "end_point": end_point,
+            "points": points,
+        },
     )
 
 
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
-    request.state.request_id = request_id
-    set_request_id(request_id)
+def create_app(config: AppConfig | None = None) -> FastAPI:
+    configure_logging()
+    cfg = config or AppConfig.from_env()
+    docs_url = "/docs" if cfg.enable_docs else None
+    redoc_url = "/redoc" if cfg.enable_docs else None
+    openapi_url = "/openapi.json" if cfg.enable_docs else None
+    logger = get_logger(__name__)
 
-    started_at = datetime.now(timezone.utc)
-    response = None
-    try:
-        response = await call_next(request)
-    except Exception:
-        duration_ms = round((datetime.now(timezone.utc) - started_at).total_seconds() * 1000, 3)
-        logger.exception(
-            "request_failed",
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        logger.info(
+            "application_started",
             extra={
-                "event": "request_failed",
-                "request_id": request_id,
-                "method": request.method,
-                "path": request.url.path,
-                "duration_ms": duration_ms,
-                "client_ip": request.client.host if request.client else None,
+                "event": "application_started",
+                "api_key_configured": api_key_is_configured(app.state.config),
             },
         )
-        raise
-    finally:
-        if response is not None:
-            response.headers["X-Request-ID"] = request_id
-            duration_ms = round((datetime.now(timezone.utc) - started_at).total_seconds() * 1000, 3)
-            log_level = logging.INFO if response.status_code < 400 else logging.WARNING if response.status_code < 500 else logging.ERROR
-            logger.log(
-                log_level,
-                "request_completed",
+        yield
+
+    app = FastAPI(
+        title="MERIT-Hydro API",
+        docs_url=docs_url,
+        redoc_url=redoc_url,
+        openapi_url=openapi_url,
+        lifespan=lifespan,
+    )
+    app.state.config = cfg
+    app.state.logger = logger
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cfg.allowed_origins,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    @app.middleware("http")
+    async def request_middleware(request: Request, call_next):  # type: ignore[no-redef]
+        cfg_local: AppConfig = request.app.state.config
+        request_id = None
+        if cfg_local.trust_x_request_id:
+            header_id = request.headers.get("X-Request-ID")
+            if header_id:
+                request_id = header_id.strip()
+        request.state.request_id = request_id or str(uuid.uuid4())
+        request.state.generated_at = datetime.now(timezone.utc)
+        set_request_id(request.state.request_id)
+
+        start = time.perf_counter()
+        if request.method in {"POST", "PUT", "PATCH"}:
+            content_length = request.headers.get("content-length")
+            if content_length is not None:
+                try:
+                    if int(content_length) > cfg_local.max_request_body_bytes:
+                        return error_response(
+                            request=request,
+                            code="payload_too_large",
+                            message=f"Request body too large; max is {cfg_local.max_request_body_bytes} bytes",
+                            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                        )
+                except ValueError:
+                    pass
+            else:
+                original_receive = request._receive
+                received_bytes = 0
+                buffered_messages = []
+
+                while True:
+                    message = await original_receive()
+                    buffered_messages.append(message)
+                    if message["type"] == "http.request":
+                        received_bytes += len(message.get("body", b""))
+                        if received_bytes > cfg_local.max_request_body_bytes:
+                            return error_response(
+                                request=request,
+                                code="payload_too_large",
+                                message=f"Request body too large; max is {cfg_local.max_request_body_bytes} bytes",
+                                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                            )
+                        if not message.get("more_body", False):
+                            break
+                    else:
+                        break
+
+                buffered_iter = iter(buffered_messages)
+
+                async def replay_receive():
+                    return next(buffered_iter, {"type": "http.disconnect"})
+
+                request._receive = replay_receive
+
+        response = None
+        try:
+            response = await call_next(request)
+        except ApiError as exc:
+            response = error_response(
+                request=request,
+                code=exc.code,
+                message=exc.message,
+                status_code=exc.status_code,
+            )
+        except Exception:
+            logger.exception(
+                "request_failed",
                 extra={
-                    "event": "request_completed",
-                    "request_id": request_id,
+                    "event": "request_failed",
+                    "request_id": request_id_from_request(request),
                     "method": request.method,
                     "path": request.url.path,
-                    "status_code": response.status_code,
-                    "duration_ms": duration_ms,
+                    "duration_ms": round((time.perf_counter() - start) * 1000.0, 3),
                     "client_ip": request.client.host if request.client else None,
                 },
             )
+            raise
+        finally:
+            if response is None:
+                clear_request_id()
+
+        response.headers["X-Request-ID"] = request_id_from_request(request)
+        log_level = (
+            logging.INFO
+            if response.status_code < 400
+            else logging.WARNING if response.status_code < 500 else logging.ERROR
+        )
+        logger.log(
+            log_level,
+            "request_completed",
+            extra={
+                "event": "request_completed",
+                "request_id": request_id_from_request(request),
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "duration_ms": round((time.perf_counter() - start) * 1000.0, 3),
+                "client_ip": request.client.host if request.client else None,
+            },
+        )
         clear_request_id()
-    return response
+        return response
+
+    @app.exception_handler(ApiError)
+    async def handle_api_error(request: Request, exc: ApiError) -> JSONResponse:
+        return error_response(
+            request=request,
+            code=exc.code,
+            message=exc.message,
+            status_code=exc.status_code,
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def handle_validation_error(
+        request: Request,
+        exc: RequestValidationError,
+    ) -> JSONResponse:
+        _ = exc
+        return error_response(
+            request=request,
+            code="invalid_request",
+            message="Invalid request payload",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    @app.exception_handler(Exception)
+    async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+        logger.exception(
+            "unhandled_error",
+            extra={
+                "event": "unhandled_error",
+                "request_id": request_id_from_request(request),
+                "path": request.url.path,
+                "method": request.method,
+            },
+        )
+        _ = exc
+        return error_response(
+            request=request,
+            code="internal_error",
+            message="Internal server error",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    @app.get("/health", response_model=HealthResponse)
+    def health():
+        return HealthResponse(ok=True, status="alive")
+
+    @app.get("/ready", response_model=ReadyResponse)
+    def ready(response: Response):
+        dem_ready = dataset_is_available(dem._open_dataset)
+        api_key_ready = api_key_is_configured(cfg)
+        checks = {"api_key": api_key_ready, "dem": dem_ready}
+        service_ready = all(checks.values())
+        if not service_ready:
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        logger.info(
+            "readiness_checked",
+            extra={
+                "event": "readiness_checked",
+                "dem_ready": dem_ready,
+                "api_key_configured": api_key_ready,
+            },
+        )
+        return ReadyResponse(
+            ok=service_ready,
+            status="ready" if service_ready else "not_ready",
+            checks=checks,
+        )
+
+    @app.post("/elevations", dependencies=[Depends(require_api_key)], response_model=ElevationProfileResponse)
+    def elevation_post(
+        payload: ElevationsRequestBody,
+        request: Request,
+    ):
+        ensure_dataset_available()
+        line_coords = _extract_line_coords(payload.geojson)
+        vertex_chainages = _build_chainage_m(line_coords)
+        line_length_m = vertex_chainages[-1] if vertex_chainages else 0.0
+        if line_length_m > MAX_LINE_LENGTH_M + CHAINAGE_EPSILON_M:
+            raise ApiError(
+                "invalid_request",
+                f"Line length exceeds max of {MAX_LINE_LENGTH_M} m",
+                status.HTTP_400_BAD_REQUEST,
+            )
+        sample_chainages = _build_sample_chainages_m(line_length_m, payload.density_m)
+        coords = _interpolate_samples_along_line(line_coords, vertex_chainages, sample_chainages)
+        return _build_profile_response(line_coords, coords, sample_chainages, line_length_m, request, logger)
+
+    return app
 
 
-@app.on_event("startup")
-def log_startup() -> None:
-    logger.info(
-        "application_started",
-        extra={
-            "event": "application_started",
-            "api_key_configured": api_key_is_configured(),
-        },
-    )
+def app_factory() -> FastAPI:
+    return create_app()
 
 
-@app.get("/health", response_model=HealthResponse)
-def health():
-    # Liveness only: process is up and can serve requests.
-    return HealthResponse(ok=True, status="alive")
-
-
-@app.get("/ready", response_model=ReadyResponse)
-def ready(response: Response):
-    dem_ready = dataset_is_available(dem._open_dataset)
-    service_ready = dem_ready and api_key_is_configured()
-    if not service_ready:
-        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    logger.info(
-        "readiness_checked",
-        extra={
-            "event": "readiness_checked",
-            "dem_ready": dem_ready,
-            "api_key_configured": api_key_is_configured(),
-        },
-    )
-    return ReadyResponse(
-        ok=service_ready,
-        dem_ready=dem_ready,
-    )
-
-
-@app.post("/elevations", dependencies=[Depends(require_api_key)], response_model=ElevationProfileResponse)
-def elevation_post(payload: BatchRequest, request: Request):
-    ensure_dataset_available()
-    coords = [(point.lat, point.lng) for point in payload.points]
-    return _build_profile_response(coords, request)
+app = create_app()
