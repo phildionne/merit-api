@@ -56,7 +56,6 @@ class JsonFormatter(logging.Formatter):
             "duration_ms",
             "client_ip",
             "point_count",
-            "line_length_m",
             "coverage_ratio",
             "dem_ready",
             "api_key_configured",

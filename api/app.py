@@ -17,24 +17,15 @@ from .config import AppConfig
 from .errors import ApiError, error_response, request_id_from_request
 from .logging import clear_request_id, configure_logging, get_logger, set_request_id
 from .models import (
-    ElevationProfileResponse,
+    ElevationPointsResponse,
     ElevationsRequestBody,
     HealthResponse,
-    ProfilePointResponse,
     QualityResponse,
     ReadyResponse,
+    SampledPointResponse,
     SourceMetaResponse,
 )
 from . import profile as profile_module
-
-EARTH_RADIUS_M = profile_module.EARTH_RADIUS_M
-CHAINAGE_EPSILON_M = profile_module.CHAINAGE_EPSILON_M
-MAX_LINE_LENGTH_M = profile_module.MAX_LINE_LENGTH_M
-_haversine_distance_m = profile_module.haversine_distance_m
-_build_chainage_m = profile_module.build_chainage_m
-_build_sample_chainages_m = profile_module.build_sample_chainages_m
-_interpolate_samples_along_line = profile_module.interpolate_samples_along_line
-_build_quality = profile_module.build_quality
 
 
 def api_key_is_configured(config: AppConfig) -> bool:
@@ -69,95 +60,62 @@ def dataset_is_available(dataset_opener) -> bool:
         return False
 
 
-def _extract_line_coords(payload) -> list[tuple[float, float]]:
-    return [(lat, lng) for lng, lat in payload.features[0].geometry.coordinates]
-
-
-def _sample_profile_results(points: list[tuple[float, float]]) -> list[dict[str, float | str | None]]:
+def _sample_point_results(points: list[tuple[float, float]]) -> list[dict[str, float | str | None]]:
     try:
         return dem.sample_points(points)
     except RasterioIOError:
         raise ApiError("not_ready", "DEM dataset not available", status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
-def _build_profile_point(
-    chainage_m: float,
-    sampled_result: dict[str, float | str | None],
-) -> ProfilePointResponse:
-    return ProfilePointResponse(
-        chainage_m=chainage_m,
-        elevation_m=sampled_result["elevation_m"],
-        status=sampled_result["status"],
-    )
+def _extract_request_points(payload: ElevationsRequestBody) -> tuple[list[str], list[tuple[float, float]]]:
+    point_ids: list[str] = []
+    coords: list[tuple[float, float]] = []
+
+    for point in payload.points:
+        lng, lat = point.coordinates
+        point_ids.append(point.id)
+        coords.append((lat, lng))
+    return point_ids, coords
 
 
-def _build_profile_response(
-    line_coords: list[tuple[float, float]],
-    coords: list[tuple[float, float]],
-    chainages: list[float],
-    line_length_m: float,
+def _build_points_response(
+    point_ids: list[str],
+    sampled_results: list[dict[str, float | str | None]],
     request: Request,
     logger,
-) -> ElevationProfileResponse:
-    start_lat, start_lng = line_coords[0]
-    end_lat, end_lng = line_coords[-1]
-    endpoint_already_sampled = bool(chainages) and abs(chainages[-1] - line_length_m) <= CHAINAGE_EPSILON_M
-    include_end_point = abs(line_length_m) > CHAINAGE_EPSILON_M and not endpoint_already_sampled
+) -> ElevationPointsResponse:
+    if len(point_ids) != len(sampled_results):
+        raise RuntimeError("mismatched DEM sample results")
 
-    sampled_coords = [(start_lat, start_lng), *coords]
-    if include_end_point:
-        sampled_coords.append((end_lat, end_lng))
-    sampled_results = _sample_profile_results(sampled_coords)
-
-    start_point = _build_profile_point(0.0, sampled_results[0])
-    point_results = sampled_results[1 : 1 + len(coords)]
     points = [
-        _build_profile_point(chainages[idx], result)
-        for idx, result in enumerate(point_results)
+        SampledPointResponse(
+            id=point_id,
+            elevation_m=result["elevation_m"],
+            status=result["status"],
+        )
+        for point_id, result in zip(point_ids, sampled_results)
     ]
-
-    if endpoint_already_sampled and points:
-        end_point = ProfilePointResponse(
-            chainage_m=line_length_m,
-            elevation_m=points[-1].elevation_m,
-            status=points[-1].status,
-        )
-    elif abs(line_length_m) <= CHAINAGE_EPSILON_M:
-        end_point = ProfilePointResponse(
-            chainage_m=0.0,
-            elevation_m=start_point.elevation_m,
-            status=start_point.status,
-        )
-    else:
-        end_point = _build_profile_point(line_length_m, sampled_results[-1])
-
-    statuses = [start_point.status, *[point.status for point in points]]
-    if include_end_point:
-        statuses.append(end_point.status)
+    statuses = [point.status for point in points]
     request_id = request_id_from_request(request)
-    coverage = QualityResponse(**_build_quality(statuses))
+    coverage = QualityResponse(**profile_module.build_quality(statuses))
 
     logger.info(
-        "elevation_profile_generated",
+        "elevations_sampled",
         extra={
-            "event": "elevation_profile_generated",
+            "event": "elevations_sampled",
             "request_id": request_id,
-            "point_count": len(coords),
-            "line_length_m": line_length_m,
+            "point_count": len(points),
             "coverage_ratio": coverage.coverage_ratio,
         },
     )
 
-    return ElevationProfileResponse(
+    return ElevationPointsResponse(
         version=1,
         source=SourceMetaResponse(generated_at=request.state.generated_at, request_id=request_id),
-        line_length_m=line_length_m,
-        quality=coverage,
         data={
-            "start_point": start_point,
-            "end_point": end_point,
             "points": points,
         },
+        quality=coverage,
     )
 
 
@@ -369,24 +327,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             checks=checks,
         )
 
-    @app.post("/elevations", dependencies=[Depends(require_api_key)], response_model=ElevationProfileResponse)
+    @app.post("/elevations", dependencies=[Depends(require_api_key)], response_model=ElevationPointsResponse)
     def elevation_post(
         payload: ElevationsRequestBody,
         request: Request,
     ):
         ensure_dataset_available()
-        line_coords = _extract_line_coords(payload.geojson)
-        vertex_chainages = _build_chainage_m(line_coords)
-        line_length_m = vertex_chainages[-1] if vertex_chainages else 0.0
-        if line_length_m > MAX_LINE_LENGTH_M + CHAINAGE_EPSILON_M:
-            raise ApiError(
-                "invalid_request",
-                f"Line length exceeds max of {MAX_LINE_LENGTH_M} m",
-                status.HTTP_400_BAD_REQUEST,
-            )
-        sample_chainages = _build_sample_chainages_m(line_length_m, payload.density_m)
-        coords = _interpolate_samples_along_line(line_coords, vertex_chainages, sample_chainages)
-        return _build_profile_response(line_coords, coords, sample_chainages, line_length_m, request, logger)
+        point_ids, coords = _extract_request_points(payload)
+        sampled_results = _sample_point_results(coords)
+        return _build_points_response(point_ids, sampled_results, request, logger)
 
     return app
 
