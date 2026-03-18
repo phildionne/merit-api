@@ -94,7 +94,25 @@ Make a request:
 curl -H "X-API-Key: dev-local-key" \
   -H "Content-Type: application/json" \
   -X POST "http://localhost:8000/elevations" \
-  -d '{"points":[{"lat":46.8139,"lng":-71.2080},{"lat":46.8145,"lng":-71.2050}]}'
+  -d '{
+    "geojson": {
+      "type": "FeatureCollection",
+      "features": [
+        {
+          "type": "Feature",
+          "geometry": {
+            "type": "LineString",
+            "coordinates": [
+              [-71.2080, 46.8139],
+              [-71.2050, 46.8145]
+            ]
+          },
+          "properties": null
+        }
+      ]
+    },
+    "density_m": 200
+  }'
 ```
 
 Example response shape:
@@ -107,16 +125,29 @@ Example response shape:
     "request_id": "..."
   },
   "line_length_m": 60.0,
-  "points": [
-    { "chainage_m": 0.0, "elevation_m": 42.1, "status": "ok" },
-    { "chainage_m": 60.0, "elevation_m": null, "status": "nodata" }
-  ],
   "quality": {
-    "total": 2,
-    "ok": 1,
+    "total": 4,
+    "ok": 3,
     "nodata": 1,
     "out_of_coverage": 0,
-    "coverage_ratio": 0.5
+    "coverage_ratio": 0.75
+  },
+  "data": {
+    "start_point": {
+      "chainage_m": 0.0,
+      "elevation_m": 42.5,
+      "status": "ok"
+    },
+    "end_point": {
+      "chainage_m": 60.0,
+      "elevation_m": 41.7,
+      "status": "ok"
+    },
+    "points": [
+      { "chainage_m": 20.0, "elevation_m": 42.1, "status": "ok" },
+      { "chainage_m": 40.0, "elevation_m": null, "status": "nodata" },
+      { "chainage_m": 60.0, "elevation_m": 41.7, "status": "ok" }
+    ]
   }
 }
 ```
@@ -125,14 +156,30 @@ API Endpoints:
 
 - **GET `/health`** is liveness-only and always returns HTTP 200 with `{ "ok": true, "status": "alive" }`. Docker `HEALTHCHECK` probes this endpoint.
 - **GET `/ready`** is readiness and returns:
-  - HTTP 200 when DEM is available and `API_KEY` is configured.
-  - HTTP 503 when DEM is unavailable or `API_KEY` is not configured.
-  - A payload like `{ "ok": false, "dem_ready": true }` when only API key configuration is missing.
+  - HTTP 200 with `{ "ok": true, "status": "ready", "checks": { "api_key": true, "dem": true } }` when the service is ready.
+  - HTTP 503 with `{ "ok": false, "status": "not_ready", "checks": ... }` when API key or DEM prerequisites are missing.
 - **POST `/elevations`**:
-  - Accepts `{ "points": [ {"lat":..,"lng":..}, ... ] }` with zero or more points.
-  - Enforces a maximum batch size from `MAX_BATCH` (default `1000`); larger requests are rejected by request validation.
-  - Returns the same envelope shape with one point entry per input coordinate.
+  - Accepts a JSON body containing `geojson` plus `density_m`.
+  - `geojson` must be a `FeatureCollection` containing exactly one `LineString`.
+  - Requires `density_m > 100.0` to define the spacing between sampled elevations.
+  - Rejects lines longer than `50000` meters with HTTP 400 and `error.code="invalid_request"`.
+  - Samples the line at fixed chainages `density_m`, `2 * density_m`, ... up to the endpoint when the line length lands exactly on an interval.
+  - Rejects request bodies larger than `MAX_REQUEST_BODY_BYTES` (default `2000000`) with HTTP 413 and `error.code="payload_too_large"`.
+  - Summarizes quality across the unique sampled locations returned by the profile: the start point, every generated interior sample, and the end point when it is not already the final generated sample.
+  - Returns `data.start_point`, `data.end_point`, and `data.points` under a shared success envelope.
   - Out-of-coverage points return `status: "out_of_coverage"` in the payload (HTTP 200).
+
+Error envelope:
+
+```json
+{
+  "error": {
+    "code": "invalid_request",
+    "message": "Invalid request payload"
+  },
+  "request_id": "req_123"
+}
+```
 
 
 ### Authentication
@@ -284,7 +331,7 @@ Primary environment variables:
 Optional:
 
 - `ALLOWED_ORIGINS` (default `*`): comma-separated list of origins for CORS
-- `MAX_BATCH` (default `1000`): maximum number of points accepted by `POST /elevations`
+- `MAX_REQUEST_BODY_BYTES` (default `2000000`): maximum HTTP request body size accepted by the API
 - `PORT` (default `8000` in the container): bind port used by gunicorn and the container health check
 - `WEB_CONCURRENCY` (default `2`): gunicorn worker count
 - `LOG_LEVEL` (default `info`)
