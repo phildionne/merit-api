@@ -1,5 +1,4 @@
 import json
-import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,148 +9,121 @@ from scripts import summarize_coverage_quality as summary_module
 
 
 class SummarizeCoverageQualityTests(unittest.TestCase):
-    def eastward_line(self, distance_m: float):
-        delta_lng = math.degrees(distance_m / summary_module.profile_module.EARTH_RADIUS_M)
-        return [[0.0, 0.0], [delta_lng, 0.0]]
-
-    def write_geojson(self, payload: dict) -> Path:
-        temp = tempfile.NamedTemporaryFile("w", suffix=".geojson", delete=False)
+    def write_payload(self, payload: dict) -> Path:
+        temp = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
         with temp:
             json.dump(payload, temp)
         return Path(temp.name)
 
-    def test_rejects_non_linestring_geometry(self):
-        input_path = self.write_geojson(
+    def sample_point(self, point_id: str, lng: float, lat: float) -> dict:
+        return {"id": point_id, "coordinates": [lng, lat]}
+
+    def test_rejects_missing_points_array(self):
+        input_path = self.write_payload({})
+
+        with self.assertRaisesRegex(ValueError, "points array"):
+            summary_module._load_request_points(input_path)
+
+    def test_rejects_out_of_range_coordinates(self):
+        input_path = self.write_payload(
             {
-                "type": "FeatureCollection",
-                "features": [{"geometry": {"type": "Point", "coordinates": [-71.2, 46.8]}}],
+                "points": [
+                    self.sample_point("point-0", -71.2, 95.0),
+                ]
             }
         )
 
-        with self.assertRaisesRegex(ValueError, "LineString"):
-            summary_module._load_linestring_coords(input_path)
+        with self.assertRaisesRegex(ValueError, "Latitude must be between -90 and 90"):
+            summary_module._load_request_points(input_path)
 
-    def test_build_summary_aggregates_statuses(self):
-        input_path = self.write_geojson(
+    def test_build_summary_aggregates_statuses_for_exact_request_points(self):
+        input_path = self.write_payload(
             {
-                "type": "FeatureCollection",
-                "features": [
-                    {
-                        "geometry": {
-                            "type": "LineString",
-                            "coordinates": self.eastward_line(450.0),
-                        }
-                    }
-                ],
+                "points": [
+                    self.sample_point("point-0", -71.2, 46.8),
+                    self.sample_point("point-1", -71.19, 46.81),
+                ]
             }
         )
 
-        fake_dataset = SimpleNamespace(name="/tmp/fake-dem.vrt", bounds=SimpleNamespace(left=-1, bottom=-1, right=1, top=1))
+        fake_dataset = SimpleNamespace(name="/tmp/fake-dem.vrt", bounds=SimpleNamespace(left=-180, bottom=-90, right=180, top=90))
 
         with patch.object(summary_module.dem, "_open_dataset", return_value=fake_dataset):
             with patch.object(
                 summary_module.dem,
-                "sample_point",
-                side_effect=[
+                "sample_points",
+                return_value=[
                     {"elevation_m": 10.0, "status": "ok"},
                     {"elevation_m": None, "status": "nodata"},
-                    {"elevation_m": None, "status": "out_of_coverage"},
-                    {"elevation_m": 20.0, "status": "ok"},
                 ],
-            ):
+            ) as sample_points:
                 summary = summary_module.build_summary(input_path)
 
-        self.assertEqual(summary.geometry_type, "LineString")
-        self.assertEqual(summary.density_m, 200.0)
-        self.assertEqual(summary.vertex_count, 2)
-        self.assertTrue(summary.line_within_dem_bounds)
-        self.assertEqual(summary.quality["total"], 4)
-        self.assertEqual(summary.quality["ok"], 2)
+        self.assertEqual(summary.point_count, 2)
+        self.assertTrue(summary.points_within_dem_bounds)
+        self.assertEqual(summary.quality["total"], 2)
+        self.assertEqual(summary.quality["ok"], 1)
         self.assertEqual(summary.quality["nodata"], 1)
-        self.assertEqual(summary.quality["out_of_coverage"], 1)
+        self.assertEqual(summary.quality["out_of_coverage"], 0)
         self.assertAlmostEqual(summary.quality["coverage_ratio"], 0.5, places=10)
+        self.assertEqual(
+            sample_points.call_args.args[0],
+            [(46.8, -71.2), (46.81, -71.19)],
+        )
 
     def test_quality_matches_api_helper_output(self):
         statuses = ["ok", "ok", "nodata", "out_of_coverage"]
-
         expected = summary_module.profile_module.build_quality(statuses)
 
-        fake_dataset = SimpleNamespace(name="/tmp/fake-dem.vrt", bounds=SimpleNamespace(left=-1, bottom=-1, right=1, top=1))
-        input_path = self.write_geojson(
+        input_path = self.write_payload(
             {
-                "type": "FeatureCollection",
-                "features": [
-                    {
-                        "geometry": {
-                            "type": "LineString",
-                            "coordinates": self.eastward_line(450.0),
-                        }
-                    }
-                ],
+                "points": [
+                    self.sample_point("point-0", -71.2, 46.8),
+                    self.sample_point("point-1", -71.19, 46.81),
+                    self.sample_point("point-2", -71.18, 46.82),
+                    self.sample_point("point-3", -71.17, 46.83),
+                ]
             }
         )
+
+        fake_dataset = SimpleNamespace(name="/tmp/fake-dem.vrt", bounds=SimpleNamespace(left=-180, bottom=-90, right=180, top=90))
 
         with patch.object(summary_module.dem, "_open_dataset", return_value=fake_dataset):
             with patch.object(
                 summary_module.dem,
-                "sample_point",
-                side_effect=[{"elevation_m": None, "status": status_value} for status_value in statuses],
+                "sample_points",
+                side_effect=[[{"elevation_m": None, "status": status} for status in statuses]],
             ):
                 summary = summary_module.build_summary(input_path)
 
         self.assertEqual(summary.quality, expected)
 
-    def test_build_summary_samples_interior_profile_points_not_only_vertices(self):
-        input_path = self.write_geojson(
+    def test_build_summary_preserves_duplicate_coordinate_points_as_requested(self):
+        input_path = self.write_payload(
             {
-                "type": "FeatureCollection",
-                "features": [
-                    {
-                        "geometry": {
-                            "type": "LineString",
-                            "coordinates": self.eastward_line(250.0),
-                        }
-                    }
-                ],
+                "points": [
+                    self.sample_point("point-a", -71.2, 46.8),
+                    self.sample_point("point-b", -71.2, 46.8),
+                ]
             }
         )
 
-        fake_dataset = SimpleNamespace(name="/tmp/fake-dem.vrt", bounds=SimpleNamespace(left=-1, bottom=-1, right=1, top=1))
+        fake_dataset = SimpleNamespace(name="/tmp/fake-dem.vrt", bounds=SimpleNamespace(left=-180, bottom=-90, right=180, top=90))
 
         with patch.object(summary_module.dem, "_open_dataset", return_value=fake_dataset):
             with patch.object(
                 summary_module.dem,
-                "sample_point",
-                side_effect=[
+                "sample_points",
+                return_value=[
                     {"elevation_m": 10.0, "status": "ok"},
-                    {"elevation_m": None, "status": "nodata"},
-                    {"elevation_m": 20.0, "status": "ok"},
+                    {"elevation_m": 10.0, "status": "ok"},
                 ],
-            ) as sample_point:
-                summary = summary_module.build_summary(input_path, density_m=200.0)
+            ) as sample_points:
+                summary = summary_module.build_summary(input_path)
 
-        self.assertEqual(sample_point.call_count, 3)
-        self.assertEqual(summary.quality["total"], 3)
-        self.assertEqual(summary.quality["nodata"], 1)
-        self.assertAlmostEqual(summary.quality["coverage_ratio"], 0.6666666667, places=10)
-
-    def test_build_summary_rejects_density_at_or_below_api_minimum(self):
-        input_path = self.write_geojson(
-            {
-                "type": "FeatureCollection",
-                "features": [
-                    {
-                        "geometry": {
-                            "type": "LineString",
-                            "coordinates": self.eastward_line(250.0),
-                        }
-                    }
-                ],
-            }
-        )
-
-        with self.assertRaisesRegex(ValueError, "density_m must be greater than 100.0 meters."):
-            summary_module.build_summary(input_path, density_m=100.0)
+        self.assertEqual(sample_points.call_count, 1)
+        self.assertEqual(summary.quality["total"], 2)
+        self.assertEqual(summary.quality["ok"], 2)
 
 
 if __name__ == "__main__":
