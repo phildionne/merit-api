@@ -428,7 +428,7 @@
   }
 
   function formatElev(profile) {
-    const point = profile?.data?.start_point || (Array.isArray(profile?.data?.points) ? profile.data.points[0] : null);
+    const point = Array.isArray(profile?.data?.points) ? profile.data.points[0] : null;
     if (!point) return 'no points';
 
     if (point.status === 'out_of_coverage') return 'out_of_coverage';
@@ -453,21 +453,10 @@
             ...buildAuthHeaders()
           },
           body: JSON.stringify({
-            geojson: {
-              type: 'FeatureCollection',
-              features: [{
-                type: 'Feature',
-                geometry: {
-                  type: 'LineString',
-                  coordinates: [
-                    [lng, lat],
-                    [lng, lat]
-                  ]
-                },
-                properties: null
-              }]
-            },
-            density_m: 101
+            points: [{
+              id: 'cursor',
+              coordinates: [lng, lat]
+            }]
           })
         });
         if (resp.status === 401) {

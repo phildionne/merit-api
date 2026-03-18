@@ -50,23 +50,16 @@ elev_resp="$(
     -H "Content-Type: application/json" \
     "$elev_url" \
     -d '{
-      "geojson": {
-        "type": "FeatureCollection",
-        "features": [
-          {
-            "type": "Feature",
-            "geometry": {
-              "type": "LineString",
-              "coordinates": [
-                [-71.2080, 46.8139],
-                [-71.2050, 46.8145]
-              ]
-            },
-            "properties": null
-          }
-        ]
-      },
-      "density_m": 200
+      "points": [
+        {
+          "id": "point-0",
+          "coordinates": [-71.2080, 46.8139]
+        },
+        {
+          "id": "point-1",
+          "coordinates": [-71.2050, 46.8145]
+        }
+      ]
     }'
 )"
 
@@ -76,17 +69,14 @@ if command -v jq >/dev/null 2>&1; then
   echo "$elev_resp" | jq -e '
     has("version") and
     has("source") and
-    has("line_length_m") and
     has("quality") and
     has("data") and
     (.data.points | type == "array") and
-    (.data.start_point | has("chainage_m") and has("elevation_m") and has("status")) and
-    (.data.end_point | has("chainage_m") and has("elevation_m") and has("status"))
+    (.[ "data" ].points[0] | has("id") and has("elevation_m") and has("status"))
   ' >/dev/null
 else
   echo "$elev_resp" | grep -q '"version"'
   echo "$elev_resp" | grep -q '"source"'
-  echo "$elev_resp" | grep -q '"line_length_m"'
   echo "$elev_resp" | grep -q '"quality"'
   echo "$elev_resp" | grep -q '"data"'
 fi
