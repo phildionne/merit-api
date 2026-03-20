@@ -1,0 +1,40 @@
+{
+  "include": [
+    "src",
+    "tests",
+    "scripts"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    ".git",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".uv-cache",
+    ".venv",
+    "data",
+    "dist",
+    "viewer"
+  ],
+  "extraPaths": [
+    "src"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "recommended",
+  "failOnWarnings": true,
+  "reportMissingTypeStubs": false,
+  "reportAny": "none",
+  "reportArgumentType": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportExplicitAny": "none",
+  "reportIndexIssue": "none",
+  "reportOperatorIssue": "none",
+  "reportPrivateUsage": "none",
+  "reportReturnType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportUnknownLambdaType": "none",
+  "reportUnknownMemberType": "none",
+  "reportUnknownParameterType": "none",
+  "reportUnknownVariableType": "none"
+}

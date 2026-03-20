@@ -504,11 +504,22 @@ It removes:
 Contract tests cover readiness semantics, auth, batch response shape, out-of-bounds handling, and endpoint removal behavior.
 
 ```bash
-uv sync
-uv run ruff format api tests scripts
-uv run ruff check api tests scripts
-uv run basedpyright
-uv run python -m unittest discover -s tests -v
+make sync
+make fmt
+make fmt-check
+make lint
+make typecheck
+make test
 ```
 
-Ruff formatting and lint checks are enforced in CI. BasedPyright also runs in CI, but it is advisory in phase 1 and does not fail the workflow.
+The equivalent `uv` commands remain:
+
+```bash
+UV_CACHE_DIR=.uv-cache uv sync --locked --group dev
+UV_CACHE_DIR=.uv-cache uv run ruff format --check src tests scripts
+UV_CACHE_DIR=.uv-cache uv run ruff check .
+UV_CACHE_DIR=.uv-cache uv run basedpyright --project basedpyrightconfig.json
+UV_CACHE_DIR=.uv-cache uv run pytest -q tests
+```
+
+Ruff formatting, Ruff linting, and BasedPyright are enforced in CI. The current BasedPyright policy uses `failOnWarnings: true` on the active ruleset, while a narrower set of higher-noise diagnostic categories remains intentionally suppressed in `basedpyrightconfig.json` for future cleanup.
