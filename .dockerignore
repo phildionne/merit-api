@@ -11,8 +11,8 @@ data/
 **/*.pyo
 **/*.pyd
 *.log
+.venv/
 tests/
 viewer/
 scripts/
-README.md
 docker-compose.yml

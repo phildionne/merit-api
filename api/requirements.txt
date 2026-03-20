@@ -1,4 +1,0 @@
-fastapi==0.110.0
-gunicorn==21.2.0
-uvicorn==0.29.0
-rasterio==1.4.4

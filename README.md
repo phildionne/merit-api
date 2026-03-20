@@ -504,11 +504,11 @@ It removes:
 Contract tests cover readiness semantics, auth, batch response shape, out-of-bounds handling, and endpoint removal behavior.
 
 ```bash
-python3 -m pip install -r api/requirements-dev.txt
-ruff format api tests scripts
-ruff check api tests scripts
-basedpyright
-python3 -m unittest discover -s tests -v
+uv sync
+uv run ruff format api tests scripts
+uv run ruff check api tests scripts
+uv run basedpyright
+uv run python -m unittest discover -s tests -v
 ```
 
 Ruff formatting and lint checks are enforced in CI. BasedPyright also runs in CI, but it is advisory in phase 1 and does not fail the workflow.
