@@ -1,0 +1,23 @@
+[tool.ruff]
+target-version = "py312"
+src = ["api", "tests", "scripts"]
+
+[tool.ruff.lint]
+extend-select = ["I"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/summarize_coverage_quality.py" = ["E402"]
+
+[tool.basedpyright]
+include = ["api", "tests", "scripts"]
+exclude = [
+    "**/__pycache__",
+    ".git",
+    ".pytest_cache",
+    "data",
+    "viewer",
+]
+pythonVersion = "3.12"
+typeCheckingMode = "recommended"
+failOnWarnings = false
+reportMissingTypeStubs = false
