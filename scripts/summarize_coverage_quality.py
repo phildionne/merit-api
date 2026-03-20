@@ -6,18 +6,22 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = REPO_ROOT / "src"
 DEFAULT_LOCAL_DEM_PATH = REPO_ROOT / "data" / "mosaic" / "canada_elv.vrt"
 
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 if "DEM_PATH" not in os.environ and DEFAULT_LOCAL_DEM_PATH.exists():
     os.environ["DEM_PATH"] = str(DEFAULT_LOCAL_DEM_PATH)
 
-from api import dem  # noqa: E402
-from api import profile as profile_module  # noqa: E402
+from merit_api import dem  # noqa: E402
+from merit_api import profile as profile_module  # noqa: E402
+
+__all__ = ["CoverageSummary", "build_summary", "dem", "profile_module"]
 
 
 @dataclass(frozen=True)
@@ -44,14 +48,19 @@ class CoverageSummary:
         }
 
 
+class BoundsLike(Protocol):
+    left: float
+    bottom: float
+    right: float
+    top: float
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Summarize elevation coverage quality for a point collection using the repo DEM."
     )
-    parser.add_argument(
-        "input_path", help="Path to a JSON payload matching POST /elevations."
-    )
-    parser.add_argument(
+    _ = parser.add_argument("input_path", help="Path to a JSON payload matching POST /elevations.")
+    _ = parser.add_argument(
         "--json",
         action="store_true",
         help="Emit the summary as JSON instead of plain text.",
@@ -105,7 +114,7 @@ def _bbox(points: Sequence[tuple[str, float, float]]) -> dict[str, float]:
     }
 
 
-def _bounds_to_dict(bounds) -> dict[str, float]:
+def _bounds_to_dict(bounds: BoundsLike) -> dict[str, float]:
     return {
         "left": float(bounds.left),
         "bottom": float(bounds.bottom),
@@ -114,9 +123,7 @@ def _bounds_to_dict(bounds) -> dict[str, float]:
     }
 
 
-def _is_within_bounds(
-    points_bbox: dict[str, float], dem_bounds: dict[str, float]
-) -> bool:
+def _is_within_bounds(points_bbox: dict[str, float], dem_bounds: dict[str, float]) -> bool:
     return (
         points_bbox["left"] >= dem_bounds["left"]
         and points_bbox["right"] <= dem_bounds["right"]

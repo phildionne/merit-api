@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, field_serializer, model_validator
 
 
 class ElevationPointRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     id: str
     coordinates: tuple[float, float]
@@ -26,7 +26,7 @@ class ElevationPointRequest(BaseModel):
 
 
 class ElevationsRequestBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     points: list[ElevationPointRequest]
 

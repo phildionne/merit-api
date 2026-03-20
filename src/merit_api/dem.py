@@ -1,13 +1,25 @@
 import os
-from collections.abc import Sequence
-from typing import Literal, TypedDict
+from collections.abc import Iterable, Iterator, Sequence
+from typing import Literal, Protocol, TypedDict, cast
 
 import rasterio
 
 from .logging import get_logger
 
 _DEM_PATH = os.getenv("DEM_PATH", "/data/mosaic/canada_elv.vrt")
-_dataset = None
+
+
+class SampleDataset(Protocol):
+    bounds: Sequence[float]
+    nodata: float | int | None
+
+    def sample(
+        self,
+        coords: Iterable[tuple[float, float]],
+    ) -> Iterator[Sequence[float | int]]: ...
+
+
+_dataset: SampleDataset | None = None
 logger = get_logger(__name__)
 
 
@@ -16,7 +28,7 @@ class SamplePointResult(TypedDict):
     status: Literal["ok", "nodata", "out_of_coverage"]
 
 
-def _open_dataset():
+def _open_dataset() -> SampleDataset:
     global _dataset
     if _dataset is None:
         logger.info(
@@ -25,7 +37,7 @@ def _open_dataset():
                 "event": "opening_dem_dataset",
             },
         )
-        _dataset = rasterio.open(_DEM_PATH)
+        _dataset = cast(SampleDataset, rasterio.open(_DEM_PATH))
         logger.info(
             "dem_dataset_opened",
             extra={
@@ -35,7 +47,7 @@ def _open_dataset():
     return _dataset
 
 
-def _in_bounds(ds, lat: float, lng: float) -> bool:
+def _in_bounds(ds: SampleDataset, lat: float, lng: float) -> bool:
     left, bottom, right, top = ds.bounds
     return left <= lng <= right and bottom <= lat <= top
 
@@ -52,7 +64,10 @@ def _sample_to_result(elev: float | None, nodata: bool) -> SamplePointResult:
     }
 
 
-def _sample_value_to_tuple(raw_value, nodata_value) -> tuple[float | None, bool]:
+def _sample_value_to_tuple(
+    raw_value: Sequence[float | int],
+    nodata_value: float | int | None,
+) -> tuple[float | None, bool]:
     value = raw_value[0]
     if nodata_value is not None and value == nodata_value:
         return None, True

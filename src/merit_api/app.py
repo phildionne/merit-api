@@ -3,8 +3,10 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, Request, Response, status
 from fastapi.exceptions import RequestValidationError
@@ -35,24 +37,20 @@ def api_key_is_configured(config: AppConfig) -> bool:
 
 def require_api_key(
     request: Request,
-    x_api_key: str | None = Header(default=None),
+    x_api_key: Annotated[str | None, Header()] = None,
 ) -> None:
     config: AppConfig = request.app.state.config
     if not api_key_is_configured(config):
-        raise ApiError(
-            "not_ready", "API key not configured", status.HTTP_503_SERVICE_UNAVAILABLE
-        )
+        raise ApiError("not_ready", "API key not configured", status.HTTP_503_SERVICE_UNAVAILABLE)
     if not x_api_key:
-        raise ApiError(
-            "unauthorized", "Missing X-API-Key header", status.HTTP_401_UNAUTHORIZED
-        )
+        raise ApiError("unauthorized", "Missing X-API-Key header", status.HTTP_401_UNAUTHORIZED)
     if x_api_key.strip() != config.api_key:
         raise ApiError("unauthorized", "Invalid API key", status.HTTP_401_UNAUTHORIZED)
 
 
 def ensure_dataset_available() -> None:
     try:
-        dem._open_dataset()
+        _ = dem._open_dataset()
     except RasterioIOError:
         raise ApiError(
             "not_ready",
@@ -61,9 +59,9 @@ def ensure_dataset_available() -> None:
         )
 
 
-def dataset_is_available(dataset_opener) -> bool:
+def dataset_is_available(dataset_opener: Callable[[], object]) -> bool:
     try:
-        dataset_opener()
+        _ = dataset_opener()
         return True
     except RasterioIOError:
         return False
@@ -128,9 +126,7 @@ def _build_points_response(
 
     return ElevationPointsResponse(
         version=1,
-        source=SourceMetaResponse(
-            generated_at=request.state.generated_at, request_id=request_id
-        ),
+        source=SourceMetaResponse(generated_at=request.state.generated_at, request_id=request_id),
         data=ElevationPointsDataResponse(points=points),
         quality=coverage,
     )
@@ -173,8 +169,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    @app.middleware("http")
-    async def request_middleware(request: Request, call_next):  # type: ignore[no-redef]
+    async def request_middleware(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
         cfg_local: AppConfig = request.app.state.config
         request_id = None
         if cfg_local.trust_x_request_id:
@@ -216,7 +214,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
                 request._body = b"".join(buffered_chunks)
 
-        response = None
+        response: Response | None = None
         try:
             response = await call_next(request)
         except ApiError as exc:
@@ -243,6 +241,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if response is None:
                 clear_request_id()
 
+        if response is None:
+            raise RuntimeError("request middleware completed without a response")
+        assert response is not None
         response.headers["X-Request-ID"] = request_id_from_request(request)
         log_level = (
             logging.INFO
@@ -267,7 +268,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         clear_request_id()
         return response
 
-    @app.exception_handler(ApiError)
     async def handle_api_error(request: Request, exc: ApiError) -> JSONResponse:
         return error_response(
             request=request,
@@ -276,7 +276,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             status_code=exc.status_code,
         )
 
-    @app.exception_handler(RequestValidationError)
     async def handle_validation_error(
         request: Request,
         exc: RequestValidationError,
@@ -289,7 +288,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             status_code=status.HTTP_400_BAD_REQUEST,
         )
 
-    @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
         logger.exception(
             "unhandled_error",
@@ -308,12 +306,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-    @app.get("/health", response_model=HealthResponse)
-    def health():
+    def health() -> HealthResponse:
         return HealthResponse(ok=True, status="alive")
 
-    @app.get("/ready", response_model=ReadyResponse)
-    def ready(response: Response):
+    def ready(response: Response) -> ReadyResponse:
         dem_ready = dataset_is_available(dem._open_dataset)
         api_key_ready = api_key_is_configured(cfg)
         checks = {"api_key": api_key_ready, "dem": dem_ready}
@@ -334,19 +330,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             checks=checks,
         )
 
-    @app.post(
-        "/elevations",
-        dependencies=[Depends(require_api_key)],
-        response_model=ElevationPointsResponse,
-    )
     def elevation_post(
         payload: ElevationsRequestBody,
         request: Request,
-    ):
+    ) -> ElevationPointsResponse:
         ensure_dataset_available()
         point_ids, coords = _extract_request_points(payload)
         sampled_results = _sample_point_results(coords)
         return _build_points_response(point_ids, sampled_results, request, logger)
+
+    _ = app.middleware("http")(request_middleware)
+    _ = app.exception_handler(ApiError)(handle_api_error)
+    _ = app.exception_handler(RequestValidationError)(handle_validation_error)
+    _ = app.exception_handler(Exception)(handle_unexpected_error)
+    _ = app.get("/health", response_model=HealthResponse)(health)
+    _ = app.get("/ready", response_model=ReadyResponse)(ready)
+    _ = app.post(
+        "/elevations",
+        dependencies=[Depends(require_api_key)],
+        response_model=ElevationPointsResponse,
+    )(elevation_post)
 
     return app
 

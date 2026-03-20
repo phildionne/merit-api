@@ -4,7 +4,7 @@ import logging
 import logging.config
 import os
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, override
 
 request_id_context: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "request_id", default=None
@@ -14,7 +14,7 @@ _configured = False
 
 
 def set_request_id(request_id: str | None) -> None:
-    request_id_context.set(request_id)
+    _ = request_id_context.set(request_id)
 
 
 def get_request_id() -> str | None:
@@ -22,10 +22,11 @@ def get_request_id() -> str | None:
 
 
 def clear_request_id() -> None:
-    request_id_context.set(None)
+    _ = request_id_context.set(None)
 
 
 class RequestContextFilter(logging.Filter):
+    @override
     def filter(self, record: logging.LogRecord) -> bool:
         if not hasattr(record, "request_id"):
             record.request_id = get_request_id()
@@ -37,6 +38,7 @@ class RequestContextFilter(logging.Filter):
 
 
 class JsonFormatter(logging.Formatter):
+    @override
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(record.created, tz=timezone.utc)
@@ -78,12 +80,12 @@ def build_log_config() -> dict[str, Any]:
         "disable_existing_loggers": False,
         "filters": {
             "request_context": {
-                "()": "api.logging.RequestContextFilter",
+                "()": "merit_api.logging.RequestContextFilter",
             }
         },
         "formatters": {
             "json": {
-                "()": "api.logging.JsonFormatter",
+                "()": "merit_api.logging.JsonFormatter",
             }
         },
         "handlers": {

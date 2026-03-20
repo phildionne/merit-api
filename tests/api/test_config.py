@@ -1,15 +1,11 @@
-from api.app import create_app
-from api.config import AppConfig
 from fastapi.testclient import TestClient
+
+from merit_api.app import create_app
+from merit_api.config import AppConfig
 
 
 def test_docs_can_be_disabled_explicitly() -> None:
-    app = create_app(
-        AppConfig(
-            api_key="secret",
-            enable_docs=False,
-        )
-    )
+    app = create_app(AppConfig(api_key="secret", enable_docs=False))
 
     with TestClient(app) as client:
         docs_response = client.get("/docs")
@@ -20,12 +16,7 @@ def test_docs_can_be_disabled_explicitly() -> None:
 
 
 def test_x_request_id_is_ignored_when_config_disables_trust() -> None:
-    app = create_app(
-        AppConfig(
-            api_key="secret",
-            trust_x_request_id=False,
-        )
-    )
+    app = create_app(AppConfig(api_key="secret", trust_x_request_id=False))
 
     with TestClient(app) as client:
         response = client.get("/health", headers={"X-Request-ID": "client-supplied"})
@@ -35,12 +26,7 @@ def test_x_request_id_is_ignored_when_config_disables_trust() -> None:
 
 
 def test_x_request_id_is_echoed_when_config_trusts_header() -> None:
-    app = create_app(
-        AppConfig(
-            api_key="secret",
-            trust_x_request_id=True,
-        )
-    )
+    app = create_app(AppConfig(api_key="secret", trust_x_request_id=True))
 
     with TestClient(app) as client:
         response = client.get("/health", headers={"X-Request-ID": "client-supplied"})

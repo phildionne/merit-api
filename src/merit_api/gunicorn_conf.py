@@ -1,4 +1,4 @@
-from api.logging import build_log_config
+from merit_api.logging import build_log_config
 
 accesslog = "-"
 errorlog = "-"

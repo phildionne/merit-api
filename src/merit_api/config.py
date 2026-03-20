@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -20,7 +21,7 @@ def _parse_bool(raw: str | None, *, default: bool) -> bool:
 
 
 class AppConfig(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
     api_key: str = ""
     max_request_body_bytes: int = Field(default=2_000_000, ge=1)
@@ -35,8 +36,6 @@ class AppConfig(BaseModel):
             api_key=(env.get("API_KEY") or "").strip(),
             max_request_body_bytes=int(env.get("MAX_REQUEST_BODY_BYTES", "2000000")),
             allowed_origins=_parse_allowed_origins(env.get("ALLOWED_ORIGINS")),
-            trust_x_request_id=_parse_bool(
-                env.get("MERIT_TRUST_X_REQUEST_ID"), default=True
-            ),
+            trust_x_request_id=_parse_bool(env.get("MERIT_TRUST_X_REQUEST_ID"), default=True),
             enable_docs=_parse_bool(env.get("MERIT_ENABLE_DOCS"), default=True),
         )
