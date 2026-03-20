@@ -5,11 +5,10 @@ import uuid
 from collections import deque
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
-from rasterio.errors import RasterioIOError
-
 from api import app as app_module
 from api.config import AppConfig
+from fastapi.testclient import TestClient
+from rasterio.errors import RasterioIOError
 
 
 class ApiContractTests(unittest.TestCase):
@@ -54,14 +53,18 @@ class ApiContractTests(unittest.TestCase):
         return {"id": point_id, "coordinates": [lng, lat]}
 
     def test_health_is_liveness_only(self):
-        with patch.object(app_module.dem, "_open_dataset", side_effect=RasterioIOError("dem missing")):
+        with patch.object(
+            app_module.dem, "_open_dataset", side_effect=RasterioIOError("dem missing")
+        ):
             with self.make_client() as client:
                 response = client.get("/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"ok": True, "status": "alive"})
 
     def test_ready_returns_service_specific_checks(self):
-        with patch.object(app_module.dem, "_open_dataset", side_effect=RasterioIOError("dem missing")):
+        with patch.object(
+            app_module.dem, "_open_dataset", side_effect=RasterioIOError("dem missing")
+        ):
             with self.make_client() as client:
                 response = client.get("/ready")
         self.assertEqual(response.status_code, 503)
@@ -90,7 +93,9 @@ class ApiContractTests(unittest.TestCase):
         )
 
     def test_post_elevations_requires_api_key(self):
-        request_payload = self.elevations_request([self.sample_point("point-0", -71.2080, 46.8139)])
+        request_payload = self.elevations_request(
+            [self.sample_point("point-0", -71.2080, 46.8139)]
+        )
         with patch.object(app_module.dem, "_open_dataset", return_value=object()):
             with patch.object(
                 app_module.dem,
@@ -121,20 +126,30 @@ class ApiContractTests(unittest.TestCase):
                 response = client.post(
                     "/elevations",
                     headers={"X-API-Key": "any-key"},
-                    json=self.elevations_request([self.sample_point("point-0", -71.2080, 46.8139)]),
+                    json=self.elevations_request(
+                        [self.sample_point("point-0", -71.2080, 46.8139)]
+                    ),
                 )
 
         body = self.assert_error(response, "not_ready", 503)
         self.assertEqual(body["error"]["message"], "API key not configured")
 
-    def test_post_elevations_returns_not_ready_when_dem_read_fails_during_sampling(self):
+    def test_post_elevations_returns_not_ready_when_dem_read_fails_during_sampling(
+        self,
+    ):
         with patch.object(app_module.dem, "_open_dataset", return_value=object()):
-            with patch.object(app_module.dem, "sample_points", side_effect=RasterioIOError("tile missing")):
+            with patch.object(
+                app_module.dem,
+                "sample_points",
+                side_effect=RasterioIOError("tile missing"),
+            ):
                 with self.make_client() as client:
                     response = client.post(
                         "/elevations",
                         headers={"X-API-Key": "test-api-key"},
-                        json=self.elevations_request([self.sample_point("point-0", -71.2080, 46.8139)]),
+                        json=self.elevations_request(
+                            [self.sample_point("point-0", -71.2080, 46.8139)]
+                        ),
                     )
 
         body = self.assert_error(response, "not_ready", 503)
@@ -151,7 +166,9 @@ class ApiContractTests(unittest.TestCase):
                     response = client.post(
                         "/elevations",
                         headers={"X-API-Key": "test-api-key"},
-                        json=self.elevations_request([self.sample_point("point-0", -71.2080, 46.8139)]),
+                        json=self.elevations_request(
+                            [self.sample_point("point-0", -71.2080, 46.8139)]
+                        ),
                     )
         self.assertEqual(response.status_code, 200)
         payload = response.json()
@@ -248,7 +265,9 @@ class ApiContractTests(unittest.TestCase):
             post_elevation = client.post(
                 "/elevation",
                 headers={"X-API-Key": "test-api-key"},
-                json=self.elevations_request([self.sample_point("point-0", -71.2080, 46.8139)]),
+                json=self.elevations_request(
+                    [self.sample_point("point-0", -71.2080, 46.8139)]
+                ),
             )
             get_elevations = client.get("/elevations")
 
@@ -272,8 +291,15 @@ class ApiContractTests(unittest.TestCase):
                     self.sample_point("duplicate", -71.2050, 46.8145),
                 ]
             },
-            {"points": [dict(self.sample_point("point-0", -71.2080, 46.8139), extra=True)]},
-            {"points": [self.sample_point("point-0", -71.2080, 46.8139)], "extra": True},
+            {
+                "points": [
+                    dict(self.sample_point("point-0", -71.2080, 46.8139), extra=True)
+                ]
+            },
+            {
+                "points": [self.sample_point("point-0", -71.2080, 46.8139)],
+                "extra": True,
+            },
         ]
 
         with self.make_client() as client:
@@ -287,7 +313,9 @@ class ApiContractTests(unittest.TestCase):
 
     def test_large_point_batch_is_accepted_when_request_body_fits(self):
         points = [
-            self.sample_point(f"point-{idx}", -71.2080 + idx * 1e-6, 46.8139 + idx * 1e-6)
+            self.sample_point(
+                f"point-{idx}", -71.2080 + idx * 1e-6, 46.8139 + idx * 1e-6
+            )
             for idx in range(1500)
         ]
         with patch.object(app_module.dem, "_open_dataset", return_value=object()):
@@ -295,7 +323,8 @@ class ApiContractTests(unittest.TestCase):
                 app_module.dem,
                 "sample_points",
                 side_effect=lambda coords: [
-                    {"elevation_m": float(idx), "status": "ok"} for idx, _ in enumerate(coords)
+                    {"elevation_m": float(idx), "status": "ok"}
+                    for idx, _ in enumerate(coords)
                 ],
             ) as sample_points:
                 with self.make_client() as client:
@@ -324,13 +353,15 @@ class ApiContractTests(unittest.TestCase):
             )
 
         body = self.assert_error(response, "payload_too_large", 413)
-        self.assertEqual(body["error"]["message"], "Request body too large; max is 64 bytes")
+        self.assertEqual(
+            body["error"]["message"], "Request body too large; max is 64 bytes"
+        )
 
     def test_chunked_request_without_content_length_streams_to_route(self):
-        payload = (
-            b'{"points":[{"id":"point-0","coordinates":[-71.208,46.8139]}]}'
+        payload = b'{"points":[{"id":"point-0","coordinates":[-71.208,46.8139]}]}'
+        app = app_module.create_app(
+            AppConfig(api_key="test-api-key", max_request_body_bytes=1_000_000)
         )
-        app = app_module.create_app(AppConfig(api_key="test-api-key", max_request_body_bytes=1_000_000))
 
         async def run_request():
             messages = deque(
@@ -341,14 +372,20 @@ class ApiContractTests(unittest.TestCase):
                 ]
             )
             sent = []
+            response_complete = asyncio.Event()
 
             async def receive():
                 if messages:
                     return messages.popleft()
+                await response_complete.wait()
                 return {"type": "http.disconnect"}
 
             async def send(message):
                 sent.append(message)
+                if message["type"] == "http.response.body" and not message.get(
+                    "more_body", False
+                ):
+                    response_complete.set()
 
             scope = {
                 "type": "http",
@@ -379,8 +416,14 @@ class ApiContractTests(unittest.TestCase):
 
         messages, sample_points_call_count = asyncio.run(run_request())
 
-        start = next(message for message in messages if message["type"] == "http.response.start")
-        body = b"".join(message.get("body", b"") for message in messages if message["type"] == "http.response.body")
+        start = next(
+            message for message in messages if message["type"] == "http.response.start"
+        )
+        body = b"".join(
+            message.get("body", b"")
+            for message in messages
+            if message["type"] == "http.response.body"
+        )
         payload_json = json.loads(body)
 
         self.assertEqual(start["status"], 200)
@@ -392,10 +435,10 @@ class ApiContractTests(unittest.TestCase):
         )
 
     def test_chunked_request_body_larger_than_limit_returns_413(self):
-        payload = (
-            b'{"points":[{"id":"point-0","coordinates":[-71.208,46.8139]},{"id":"point-1","coordinates":[-71.205,46.8145]}]}'
+        payload = b'{"points":[{"id":"point-0","coordinates":[-71.208,46.8139]},{"id":"point-1","coordinates":[-71.205,46.8145]}]}'
+        app = app_module.create_app(
+            AppConfig(api_key="test-api-key", max_request_body_bytes=64)
         )
-        app = app_module.create_app(AppConfig(api_key="test-api-key", max_request_body_bytes=64))
 
         async def run_request():
             messages = deque(
@@ -407,16 +450,22 @@ class ApiContractTests(unittest.TestCase):
             )
             sent = []
             receive_calls = 0
+            response_complete = asyncio.Event()
 
             async def receive():
                 nonlocal receive_calls
                 receive_calls += 1
                 if messages:
                     return messages.popleft()
+                await response_complete.wait()
                 return {"type": "http.disconnect"}
 
             async def send(message):
                 sent.append(message)
+                if message["type"] == "http.response.body" and not message.get(
+                    "more_body", False
+                ):
+                    response_complete.set()
 
             scope = {
                 "type": "http",
@@ -437,26 +486,40 @@ class ApiContractTests(unittest.TestCase):
             }
 
             with patch.object(app_module.dem, "_open_dataset", return_value=object()):
-                with patch.object(app_module.dem, "sample_points", return_value=[]) as sample_points:
+                with patch.object(
+                    app_module.dem, "sample_points", return_value=[]
+                ) as sample_points:
                     await app(scope, receive, send)
             return sent, receive_calls, sample_points.call_count, len(messages)
 
-        messages, receive_calls, sample_points_call_count, remaining_messages = asyncio.run(run_request())
+        messages, receive_calls, sample_points_call_count, remaining_messages = (
+            asyncio.run(run_request())
+        )
 
-        start = next(message for message in messages if message["type"] == "http.response.start")
-        body = b"".join(message.get("body", b"") for message in messages if message["type"] == "http.response.body")
+        start = next(
+            message for message in messages if message["type"] == "http.response.start"
+        )
+        body = b"".join(
+            message.get("body", b"")
+            for message in messages
+            if message["type"] == "http.response.body"
+        )
         payload_json = json.loads(body)
 
         self.assertEqual(start["status"], 413)
         self.assertEqual(payload_json["error"]["code"], "payload_too_large")
-        self.assertEqual(payload_json["error"]["message"], "Request body too large; max is 64 bytes")
+        self.assertEqual(
+            payload_json["error"]["message"], "Request body too large; max is 64 bytes"
+        )
         self.assertTrue(payload_json["request_id"])
         self.assertEqual(sample_points_call_count, 0)
         self.assertLess(receive_calls, 3)
         self.assertGreater(remaining_messages, 0)
 
     def test_request_id_echo_and_generation(self):
-        request_payload = self.elevations_request([self.sample_point("point-0", -71.2080, 46.8139)])
+        request_payload = self.elevations_request(
+            [self.sample_point("point-0", -71.2080, 46.8139)]
+        )
         with patch.object(app_module.dem, "_open_dataset", return_value=object()):
             with patch.object(
                 app_module.dem,
@@ -466,7 +529,10 @@ class ApiContractTests(unittest.TestCase):
                 with self.make_client() as client:
                     echoed = client.post(
                         "/elevations",
-                        headers={"X-API-Key": "test-api-key", "X-Request-ID": "req-123"},
+                        headers={
+                            "X-API-Key": "test-api-key",
+                            "X-Request-ID": "req-123",
+                        },
                         json=request_payload,
                     )
                     generated = client.post(
@@ -493,7 +559,9 @@ class ApiContractTests(unittest.TestCase):
             response = client.post(
                 "/width",
                 headers={"X-API-Key": "test-api-key"},
-                json=self.elevations_request([self.sample_point("point-0", -71.2080, 46.8139)]),
+                json=self.elevations_request(
+                    [self.sample_point("point-0", -71.2080, 46.8139)]
+                ),
             )
         self.assertEqual(response.status_code, 404)
 

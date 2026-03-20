@@ -1,9 +1,18 @@
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
+from typing import TypedDict
 
 
-def build_quality(statuses: Sequence[str]) -> dict[str, int | float]:
+class QualitySummary(TypedDict):
+    total: int
+    ok: int
+    nodata: int
+    out_of_coverage: int
+    coverage_ratio: float
+
+
+def build_quality(statuses: Sequence[str]) -> QualitySummary:
     total = len(statuses)
     ok = statuses.count("ok")
     nodata = statuses.count("nodata")

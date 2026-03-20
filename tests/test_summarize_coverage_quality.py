@@ -9,13 +9,13 @@ from scripts import summarize_coverage_quality as summary_module
 
 
 class SummarizeCoverageQualityTests(unittest.TestCase):
-    def write_payload(self, payload: dict) -> Path:
+    def write_payload(self, payload: dict[str, object]) -> Path:
         temp = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
         with temp:
             json.dump(payload, temp)
         return Path(temp.name)
 
-    def sample_point(self, point_id: str, lng: float, lat: float) -> dict:
+    def sample_point(self, point_id: str, lng: float, lat: float) -> dict[str, object]:
         return {"id": point_id, "coordinates": [lng, lat]}
 
     def test_rejects_missing_points_array(self):
@@ -46,9 +46,14 @@ class SummarizeCoverageQualityTests(unittest.TestCase):
             }
         )
 
-        fake_dataset = SimpleNamespace(name="/tmp/fake-dem.vrt", bounds=SimpleNamespace(left=-180, bottom=-90, right=180, top=90))
+        fake_dataset = SimpleNamespace(
+            name="/tmp/fake-dem.vrt",
+            bounds=SimpleNamespace(left=-180, bottom=-90, right=180, top=90),
+        )
 
-        with patch.object(summary_module.dem, "_open_dataset", return_value=fake_dataset):
+        with patch.object(
+            summary_module.dem, "_open_dataset", return_value=fake_dataset
+        ):
             with patch.object(
                 summary_module.dem,
                 "sample_points",
@@ -86,13 +91,20 @@ class SummarizeCoverageQualityTests(unittest.TestCase):
             }
         )
 
-        fake_dataset = SimpleNamespace(name="/tmp/fake-dem.vrt", bounds=SimpleNamespace(left=-180, bottom=-90, right=180, top=90))
+        fake_dataset = SimpleNamespace(
+            name="/tmp/fake-dem.vrt",
+            bounds=SimpleNamespace(left=-180, bottom=-90, right=180, top=90),
+        )
 
-        with patch.object(summary_module.dem, "_open_dataset", return_value=fake_dataset):
+        with patch.object(
+            summary_module.dem, "_open_dataset", return_value=fake_dataset
+        ):
             with patch.object(
                 summary_module.dem,
                 "sample_points",
-                side_effect=[[{"elevation_m": None, "status": status} for status in statuses]],
+                side_effect=[
+                    [{"elevation_m": None, "status": status} for status in statuses]
+                ],
             ):
                 summary = summary_module.build_summary(input_path)
 
@@ -108,9 +120,14 @@ class SummarizeCoverageQualityTests(unittest.TestCase):
             }
         )
 
-        fake_dataset = SimpleNamespace(name="/tmp/fake-dem.vrt", bounds=SimpleNamespace(left=-180, bottom=-90, right=180, top=90))
+        fake_dataset = SimpleNamespace(
+            name="/tmp/fake-dem.vrt",
+            bounds=SimpleNamespace(left=-180, bottom=-90, right=180, top=90),
+        )
 
-        with patch.object(summary_module.dem, "_open_dataset", return_value=fake_dataset):
+        with patch.object(
+            summary_module.dem, "_open_dataset", return_value=fake_dataset
+        ):
             with patch.object(
                 summary_module.dem,
                 "sample_points",

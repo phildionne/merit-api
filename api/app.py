@@ -8,15 +8,17 @@ from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, Header, Request, Response, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from rasterio.errors import RasterioIOError
 
 from . import dem
+from . import profile as profile_module
 from .config import AppConfig
 from .errors import ApiError, error_response, request_id_from_request
 from .logging import clear_request_id, configure_logging, get_logger, set_request_id
 from .models import (
+    ElevationPointsDataResponse,
     ElevationPointsResponse,
     ElevationsRequestBody,
     HealthResponse,
@@ -25,7 +27,6 @@ from .models import (
     SampledPointResponse,
     SourceMetaResponse,
 )
-from . import profile as profile_module
 
 
 def api_key_is_configured(config: AppConfig) -> bool:
@@ -38,9 +39,13 @@ def require_api_key(
 ) -> None:
     config: AppConfig = request.app.state.config
     if not api_key_is_configured(config):
-        raise ApiError("not_ready", "API key not configured", status.HTTP_503_SERVICE_UNAVAILABLE)
+        raise ApiError(
+            "not_ready", "API key not configured", status.HTTP_503_SERVICE_UNAVAILABLE
+        )
     if not x_api_key:
-        raise ApiError("unauthorized", "Missing X-API-Key header", status.HTTP_401_UNAUTHORIZED)
+        raise ApiError(
+            "unauthorized", "Missing X-API-Key header", status.HTTP_401_UNAUTHORIZED
+        )
     if x_api_key.strip() != config.api_key:
         raise ApiError("unauthorized", "Invalid API key", status.HTTP_401_UNAUTHORIZED)
 
@@ -49,7 +54,11 @@ def ensure_dataset_available() -> None:
     try:
         dem._open_dataset()
     except RasterioIOError:
-        raise ApiError("not_ready", "DEM dataset not available", status.HTTP_503_SERVICE_UNAVAILABLE)
+        raise ApiError(
+            "not_ready",
+            "DEM dataset not available",
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
 
 def dataset_is_available(dataset_opener) -> bool:
@@ -60,14 +69,22 @@ def dataset_is_available(dataset_opener) -> bool:
         return False
 
 
-def _sample_point_results(points: list[tuple[float, float]]) -> list[dict[str, float | str | None]]:
+def _sample_point_results(
+    points: list[tuple[float, float]],
+) -> list[dem.SamplePointResult]:
     try:
         return dem.sample_points(points)
     except RasterioIOError:
-        raise ApiError("not_ready", "DEM dataset not available", status.HTTP_503_SERVICE_UNAVAILABLE)
+        raise ApiError(
+            "not_ready",
+            "DEM dataset not available",
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
 
-def _extract_request_points(payload: ElevationsRequestBody) -> tuple[list[str], list[tuple[float, float]]]:
+def _extract_request_points(
+    payload: ElevationsRequestBody,
+) -> tuple[list[str], list[tuple[float, float]]]:
     point_ids: list[str] = []
     coords: list[tuple[float, float]] = []
 
@@ -80,9 +97,9 @@ def _extract_request_points(payload: ElevationsRequestBody) -> tuple[list[str], 
 
 def _build_points_response(
     point_ids: list[str],
-    sampled_results: list[dict[str, float | str | None]],
+    sampled_results: list[dem.SamplePointResult],
     request: Request,
-    logger,
+    logger: logging.Logger,
 ) -> ElevationPointsResponse:
     if len(point_ids) != len(sampled_results):
         raise RuntimeError("mismatched DEM sample results")
@@ -111,10 +128,10 @@ def _build_points_response(
 
     return ElevationPointsResponse(
         version=1,
-        source=SourceMetaResponse(generated_at=request.state.generated_at, request_id=request_id),
-        data={
-            "points": points,
-        },
+        source=SourceMetaResponse(
+            generated_at=request.state.generated_at, request_id=request_id
+        ),
+        data=ElevationPointsDataResponse(points=points),
         quality=coverage,
     )
 
@@ -178,38 +195,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             request=request,
                             code="payload_too_large",
                             message=f"Request body too large; max is {cfg_local.max_request_body_bytes} bytes",
-                            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                         )
                 except ValueError:
                     pass
             else:
-                original_receive = request._receive
                 received_bytes = 0
-                buffered_messages = []
+                buffered_chunks: list[bytes] = []
 
-                while True:
-                    message = await original_receive()
-                    buffered_messages.append(message)
-                    if message["type"] == "http.request":
-                        received_bytes += len(message.get("body", b""))
-                        if received_bytes > cfg_local.max_request_body_bytes:
-                            return error_response(
-                                request=request,
-                                code="payload_too_large",
-                                message=f"Request body too large; max is {cfg_local.max_request_body_bytes} bytes",
-                                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                            )
-                        if not message.get("more_body", False):
-                            break
-                    else:
-                        break
+                async for chunk in request.stream():
+                    received_bytes += len(chunk)
+                    if received_bytes > cfg_local.max_request_body_bytes:
+                        return error_response(
+                            request=request,
+                            code="payload_too_large",
+                            message=f"Request body too large; max is {cfg_local.max_request_body_bytes} bytes",
+                            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        )
+                    buffered_chunks.append(chunk)
 
-                buffered_iter = iter(buffered_messages)
-
-                async def replay_receive():
-                    return next(buffered_iter, {"type": "http.disconnect"})
-
-                request._receive = replay_receive
+                request._body = b"".join(buffered_chunks)
 
         response = None
         try:
@@ -242,7 +247,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         log_level = (
             logging.INFO
             if response.status_code < 400
-            else logging.WARNING if response.status_code < 500 else logging.ERROR
+            else logging.WARNING
+            if response.status_code < 500
+            else logging.ERROR
         )
         logger.log(
             log_level,
@@ -327,7 +334,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             checks=checks,
         )
 
-    @app.post("/elevations", dependencies=[Depends(require_api_key)], response_model=ElevationPointsResponse)
+    @app.post(
+        "/elevations",
+        dependencies=[Depends(require_api_key)],
+        response_model=ElevationPointsResponse,
+    )
     def elevation_post(
         payload: ElevationsRequestBody,
         request: Request,

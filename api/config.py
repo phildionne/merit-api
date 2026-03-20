@@ -35,6 +35,8 @@ class AppConfig(BaseModel):
             api_key=(env.get("API_KEY") or "").strip(),
             max_request_body_bytes=int(env.get("MAX_REQUEST_BODY_BYTES", "2000000")),
             allowed_origins=_parse_allowed_origins(env.get("ALLOWED_ORIGINS")),
-            trust_x_request_id=_parse_bool(env.get("MERIT_TRUST_X_REQUEST_ID"), default=True),
+            trust_x_request_id=_parse_bool(
+                env.get("MERIT_TRUST_X_REQUEST_ID"), default=True
+            ),
             enable_docs=_parse_bool(env.get("MERIT_ENABLE_DOCS"), default=True),
         )

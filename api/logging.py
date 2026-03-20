@@ -6,7 +6,9 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-request_id_context: contextvars.ContextVar[str | None] = contextvars.ContextVar("request_id", default=None)
+request_id_context: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "request_id", default=None
+)
 
 _configured = False
 

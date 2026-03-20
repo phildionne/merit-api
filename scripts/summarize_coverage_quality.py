@@ -3,10 +3,9 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LOCAL_DEM_PATH = REPO_ROOT / "data" / "mosaic" / "canada_elv.vrt"
@@ -29,10 +28,10 @@ class CoverageSummary:
     points_bbox: dict[str, float]
     dem_bounds: dict[str, float]
     points_within_dem_bounds: bool
-    quality: dict[str, int | float]
+    quality: profile_module.QualitySummary
     narrative: list[str]
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         return {
             "input_path": self.input_path,
             "dem_path": self.dem_path,
@@ -49,7 +48,9 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Summarize elevation coverage quality for a point collection using the repo DEM."
     )
-    parser.add_argument("input_path", help="Path to a JSON payload matching POST /elevations.")
+    parser.add_argument(
+        "input_path", help="Path to a JSON payload matching POST /elevations."
+    )
     parser.add_argument(
         "--json",
         action="store_true",
@@ -113,7 +114,9 @@ def _bounds_to_dict(bounds) -> dict[str, float]:
     }
 
 
-def _is_within_bounds(points_bbox: dict[str, float], dem_bounds: dict[str, float]) -> bool:
+def _is_within_bounds(
+    points_bbox: dict[str, float], dem_bounds: dict[str, float]
+) -> bool:
     return (
         points_bbox["left"] >= dem_bounds["left"]
         and points_bbox["right"] <= dem_bounds["right"]
@@ -135,8 +138,12 @@ def build_summary(input_path: Path) -> CoverageSummary:
     narrative = [
         f"The input contains {len(points)} explicit API points.",
         "Quality was sampled from the exact points that POST /elevations would request.",
-        "All points are inside the DEM bounds." if within_bounds else "Some points extend outside the DEM bounds.",
-        "The point collection contains nodata gaps." if quality["nodata"] else "The point collection contains no nodata gaps.",
+        "All points are inside the DEM bounds."
+        if within_bounds
+        else "Some points extend outside the DEM bounds.",
+        "The point collection contains nodata gaps."
+        if quality["nodata"]
+        else "The point collection contains no nodata gaps.",
     ]
 
     return CoverageSummary(

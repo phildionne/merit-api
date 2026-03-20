@@ -1,5 +1,6 @@
 import os
-from typing import Dict, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Literal, TypedDict
 
 import rasterio
 
@@ -8,6 +9,11 @@ from .logging import get_logger
 _DEM_PATH = os.getenv("DEM_PATH", "/data/mosaic/canada_elv.vrt")
 _dataset = None
 logger = get_logger(__name__)
+
+
+class SamplePointResult(TypedDict):
+    elevation_m: float | None
+    status: Literal["ok", "nodata", "out_of_coverage"]
 
 
 def _open_dataset():
@@ -34,7 +40,7 @@ def _in_bounds(ds, lat: float, lng: float) -> bool:
     return left <= lng <= right and bottom <= lat <= top
 
 
-def _sample_to_result(elev: Optional[float], nodata: bool) -> Dict[str, float | str | None]:
+def _sample_to_result(elev: float | None, nodata: bool) -> SamplePointResult:
     if nodata:
         return {
             "elevation_m": None,
@@ -46,19 +52,21 @@ def _sample_to_result(elev: Optional[float], nodata: bool) -> Dict[str, float | 
     }
 
 
-def _sample_value_to_tuple(raw_value, nodata_value) -> Tuple[Optional[float], bool]:
+def _sample_value_to_tuple(raw_value, nodata_value) -> tuple[float | None, bool]:
     value = raw_value[0]
     if nodata_value is not None and value == nodata_value:
         return None, True
     return float(value), False
 
 
-def sample_points(points: Sequence[tuple[float, float]]) -> list[Dict[str, float | str | None]]:
+def sample_points(
+    points: Sequence[tuple[float, float]],
+) -> list[SamplePointResult]:
     if not points:
         return []
 
     ds = _open_dataset()
-    results: list[Dict[str, float | str | None] | None] = [None] * len(points)
+    results: list[SamplePointResult | None] = [None] * len(points)
     grouped_indexes: dict[tuple[float, float], list[int]] = {}
     unique_in_bounds: list[tuple[float, float]] = []
 
@@ -83,7 +91,10 @@ def sample_points(points: Sequence[tuple[float, float]]) -> list[Dict[str, float
             elev, nodata = _sample_value_to_tuple(sample, nodata_value)
             sample_result = _sample_to_result(elev, nodata)
             for idx in grouped_indexes[rounded]:
-                results[idx] = dict(sample_result)
+                results[idx] = {
+                    "elevation_m": sample_result["elevation_m"],
+                    "status": sample_result["status"],
+                }
 
     if any(result is None for result in results):
         raise RuntimeError("missing DEM sample result")

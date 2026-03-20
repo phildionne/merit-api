@@ -1,7 +1,6 @@
-from fastapi.testclient import TestClient
-
 from api.app import create_app
 from api.config import AppConfig
+from fastapi.testclient import TestClient
 
 
 def test_docs_can_be_disabled_explicitly() -> None:
