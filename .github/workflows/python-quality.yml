@@ -17,15 +17,25 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6.0.2
 
+      - name: Read mise tool versions
+        id: tools
+        run: |
+          python_version="$(awk -F '"' '/^[[:space:]]*python[[:space:]]*=/{ print $2 }' mise.toml)"
+          uv_version="$(awk -F '"' '/^[[:space:]]*uv[[:space:]]*=/{ print $2 }' mise.toml)"
+          test -n "$python_version"
+          test -n "$uv_version"
+          echo "python=$python_version" >> "$GITHUB_OUTPUT"
+          echo "uv=$uv_version" >> "$GITHUB_OUTPUT"
+
       - name: Set up Python
         uses: actions/setup-python@v6.2.0
         with:
-          python-version-file: ".python-version"
+          python-version: ${{ steps.tools.outputs.python }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7.6.0
         with:
-          version: "0.9.26"
+          version: ${{ steps.tools.outputs.uv }}
           enable-cache: true
 
       - name: Sync project
@@ -62,15 +72,25 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6.0.2
 
+      - name: Read mise tool versions
+        id: tools
+        run: |
+          python_version="$(awk -F '"' '/^[[:space:]]*python[[:space:]]*=/{ print $2 }' mise.toml)"
+          uv_version="$(awk -F '"' '/^[[:space:]]*uv[[:space:]]*=/{ print $2 }' mise.toml)"
+          test -n "$python_version"
+          test -n "$uv_version"
+          echo "python=$python_version" >> "$GITHUB_OUTPUT"
+          echo "uv=$uv_version" >> "$GITHUB_OUTPUT"
+
       - name: Set up Python
         uses: actions/setup-python@v6.2.0
         with:
-          python-version-file: ".python-version"
+          python-version: ${{ steps.tools.outputs.python }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7.6.0
         with:
-          version: "0.9.26"
+          version: ${{ steps.tools.outputs.uv }}
           enable-cache: true
 
       - name: Sync project
