@@ -151,7 +151,7 @@ API Endpoints:
   - Accepts a JSON body containing `points`.
   - Each point must include a unique string `id` plus GeoJSON-style `coordinates` in `[lng, lat]` order.
   - Rejects request bodies larger than `MAX_REQUEST_BODY_BYTES` (default `2000000`) with HTTP 413 and `error.code="payload_too_large"`.
-  - Samples the DEM once for each requested point and returns the original `id` alongside `elevation_m` and `status`.
+  - Returns the original `id` alongside `elevation_m` and `status`; repeated coordinates rounded to 5 decimal places may be sampled once internally and reused.
   - Preserves point order in the response.
   - Aggregates `quality` from the returned point statuses.
   - Out-of-coverage points return `status: "out_of_coverage"` and `elevation_m: null` in the payload (HTTP 200).
@@ -320,8 +320,10 @@ Optional:
 - `ALLOWED_ORIGINS` (default `*`): comma-separated list of origins for CORS
 - `MAX_REQUEST_BODY_BYTES` (default `2000000`): maximum HTTP request body size accepted by the API
 - `PORT` (default `8000` in the container): bind port used by gunicorn and the container health check
-- `WEB_CONCURRENCY` (default `2`): gunicorn worker count
+- `WEB_CONCURRENCY` (default `1`): gunicorn worker count
 - `LOG_LEVEL` (default `info`)
+- `MERIT_TRUST_X_REQUEST_ID` (default `true`): when enabled, echoes a caller-supplied `X-Request-ID`; otherwise generates a new request ID
+- `MERIT_ENABLE_DOCS` (default `true`): enables FastAPI `/docs`, `/redoc`, and `/openapi.json`
 
 Import script variables:
 
@@ -335,6 +337,11 @@ Processing script overrides:
 - `BBOX_MIN_LON`, `BBOX_MIN_LAT`, `BBOX_MAX_LON`, `BBOX_MAX_LAT`: override the default Quebec-focused clip bbox used by `scripts/unpack_and_discover.sh` and `scripts/clip_quebec.sh`
 - `PARALLEL` (default `4`): number of parallel clip jobs used by `scripts/clip_quebec.sh`
 - `FORCE=1`: forces re-extraction in `scripts/unpack_and_discover.sh` and unconditional VRT rebuilds in `scripts/build_vrt.sh`
+
+Smoke test variables:
+
+- `API_URL` (default `http://localhost:8000`): base URL checked by `scripts/smoke_test.sh`
+- `SMOKE_API_KEY` or `API_KEY`: API key used by authenticated smoke checks
 
 
 ## Terracotta
@@ -505,6 +512,12 @@ Contract tests cover readiness semantics, auth, batch response shape, out-of-bou
 
 ```bash
 make sync
+make ci
+```
+
+For narrower local checks:
+
+```bash
 make fmt
 make fmt-check
 make lint
