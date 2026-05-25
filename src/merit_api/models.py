@@ -35,9 +35,11 @@ class ElevationsRequestBody(BaseModel):
         if not self.points:
             raise ValueError("points must contain at least one point")
 
-        point_ids = [point.id for point in self.points]
-        if len(point_ids) != len(set(point_ids)):
-            raise ValueError("Point ids must be unique")
+        seen_ids: set[str] = set()
+        for point in self.points:
+            if point.id in seen_ids:
+                raise ValueError("Point ids must be unique")
+            seen_ids.add(point.id)
         return self
 
 

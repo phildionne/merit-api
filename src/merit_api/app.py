@@ -48,17 +48,6 @@ def require_api_key(
         raise ApiError("unauthorized", "Invalid API key", status.HTTP_401_UNAUTHORIZED)
 
 
-def ensure_dataset_available() -> None:
-    try:
-        _ = dem._open_dataset()
-    except RasterioIOError:
-        raise ApiError(
-            "not_ready",
-            "DEM dataset not available",
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-        )
-
-
 def dataset_is_available(dataset_opener: Callable[[], object]) -> bool:
     try:
         _ = dataset_opener()
@@ -110,9 +99,8 @@ def _build_points_response(
         )
         for point_id, result in zip(point_ids, sampled_results)
     ]
-    statuses = [point.status for point in points]
     request_id = request_id_from_request(request)
-    coverage = QualityResponse(**profile_module.build_quality(statuses))
+    coverage = QualityResponse(**profile_module.build_quality(point.status for point in points))
 
     logger.info(
         "elevations_sampled",
@@ -334,7 +322,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         payload: ElevationsRequestBody,
         request: Request,
     ) -> ElevationPointsResponse:
-        ensure_dataset_available()
         point_ids, coords = _extract_request_points(payload)
         sampled_results = _sample_point_results(coords)
         return _build_points_response(point_ids, sampled_results, request, logger)

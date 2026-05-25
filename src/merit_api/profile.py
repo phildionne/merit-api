@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable
 from typing import TypedDict
 
 
@@ -12,11 +12,19 @@ class QualitySummary(TypedDict):
     coverage_ratio: float
 
 
-def build_quality(statuses: Sequence[str]) -> QualitySummary:
-    total = len(statuses)
-    ok = statuses.count("ok")
-    nodata = statuses.count("nodata")
-    out_of_coverage = statuses.count("out_of_coverage")
+def build_quality(statuses: Iterable[str]) -> QualitySummary:
+    total = 0
+    ok = 0
+    nodata = 0
+    out_of_coverage = 0
+    for status in statuses:
+        total += 1
+        if status == "ok":
+            ok += 1
+        elif status == "nodata":
+            nodata += 1
+        elif status == "out_of_coverage":
+            out_of_coverage += 1
     coverage_ratio = round(ok / total, 10) if total > 0 else 0.0
     return {
         "total": total,

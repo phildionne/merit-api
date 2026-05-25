@@ -47,8 +47,12 @@ def _open_dataset() -> SampleDataset:
     return _dataset
 
 
-def _in_bounds(ds: SampleDataset, lat: float, lng: float) -> bool:
-    left, bottom, right, top = ds.bounds
+def _in_bounds(
+    bounds: Sequence[float],
+    lat: float,
+    lng: float,
+) -> bool:
+    left, bottom, right, top = bounds
     return left <= lng <= right and bottom <= lat <= top
 
 
@@ -81,12 +85,13 @@ def sample_points(
         return []
 
     ds = _open_dataset()
+    bounds = tuple(float(value) for value in ds.bounds)
     results: list[SamplePointResult | None] = [None] * len(points)
     grouped_indexes: dict[tuple[float, float], list[int]] = {}
     unique_in_bounds: list[tuple[float, float]] = []
 
     for idx, (lat, lng) in enumerate(points):
-        if not _in_bounds(ds, lat, lng):
+        if not _in_bounds(bounds, lat, lng):
             results[idx] = {
                 "elevation_m": None,
                 "status": "out_of_coverage",
