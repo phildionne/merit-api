@@ -11,6 +11,8 @@ request_id_context: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 )
 
 _configured = False
+_SERVICE_NAME = os.getenv("RAILWAY_SERVICE_NAME") or "merit-api"
+_ENVIRONMENT_NAME = os.getenv("RAILWAY_ENVIRONMENT_NAME")
 
 
 def set_request_id(request_id: str | None) -> None:
@@ -31,9 +33,9 @@ class RequestContextFilter(logging.Filter):
         if not hasattr(record, "request_id"):
             record.request_id = get_request_id()
         if not hasattr(record, "service"):
-            record.service = os.getenv("RAILWAY_SERVICE_NAME") or "merit-api"
+            record.service = _SERVICE_NAME
         if not hasattr(record, "environment"):
-            record.environment = os.getenv("RAILWAY_ENVIRONMENT_NAME")
+            record.environment = _ENVIRONMENT_NAME
         return True
 
 
