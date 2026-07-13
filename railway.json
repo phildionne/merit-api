@@ -11,6 +11,7 @@
         "numReplicas": 1
       }
     },
-    "requiredMountPath": "/data"
+    "requiredMountPath": "/data",
+    "sleepApplication": true
   }
 }
