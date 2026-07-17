@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_ONLY_BINARY=rasterio
 
-ARG TERRACOTTA_VERSION=0.9.1
+ARG TERRACOTTA_VERSION=0.10.1
 RUN python -m pip install --no-cache-dir terracotta==${TERRACOTTA_VERSION}
 
 ENV PORT=8080

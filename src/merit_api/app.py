@@ -181,7 +181,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             request=request,
                             code="payload_too_large",
                             message=f"Request body too large; max is {cfg_local.max_request_body_bytes} bytes",
-                            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                         )
                 except ValueError:
                     pass
@@ -196,7 +196,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                             request=request,
                             code="payload_too_large",
                             message=f"Request body too large; max is {cfg_local.max_request_body_bytes} bytes",
-                            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                         )
                     buffered_chunks.append(chunk)
 
