@@ -48,14 +48,6 @@ def require_api_key(
         raise ApiError("unauthorized", "Invalid API key", status.HTTP_401_UNAUTHORIZED)
 
 
-def dataset_is_available(dataset_opener: Callable[[], object]) -> bool:
-    try:
-        _ = dataset_opener()
-        return True
-    except RasterioIOError:
-        return False
-
-
 def _sample_point_results(
     points: list[tuple[float, float]],
 ) -> list[dem.SamplePointResult]:
@@ -147,7 +139,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.config = cfg
-    app.state.logger = logger
 
     app.add_middleware(
         CORSMiddleware,
@@ -298,7 +289,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return HealthResponse(ok=True, status="alive")
 
     def ready(response: Response) -> ReadyResponse:
-        dem_ready = dataset_is_available(dem._open_dataset)
+        try:
+            _ = dem._open_dataset()
+            dem_ready = True
+        except RasterioIOError:
+            dem_ready = False
         api_key_ready = api_key_is_configured(cfg)
         checks = {"api_key": api_key_ready, "dem": dem_ready}
         service_ready = all(checks.values())
@@ -339,10 +334,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     )(elevation_post)
 
     return app
-
-
-def app_factory() -> FastAPI:
-    return create_app()
 
 
 app = create_app()
