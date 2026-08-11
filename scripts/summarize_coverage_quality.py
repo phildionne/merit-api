@@ -20,8 +20,7 @@ if "DEM_PATH" not in os.environ and DEFAULT_LOCAL_DEM_PATH.exists():
 
 from merit_api import dem  # noqa: E402
 from merit_api import profile as profile_module  # noqa: E402
-
-__all__ = ["CoverageSummary", "build_summary", "dem", "profile_module"]
+from merit_api.models import ElevationsRequestBody  # noqa: E402
 
 
 @dataclass(frozen=True)
@@ -70,37 +69,8 @@ def _parser() -> argparse.ArgumentParser:
 
 def _load_request_points(input_path: Path) -> list[tuple[str, float, float]]:
     with input_path.open() as fh:
-        payload = json.load(fh)
-
-    points = payload.get("points")
-    if not isinstance(points, list) or not points:
-        raise ValueError("Input must contain a non-empty points array.")
-
-    normalized: list[tuple[str, float, float]] = []
-    seen_ids: set[str] = set()
-    for index, point in enumerate(points):
-        if not isinstance(point, dict):
-            raise ValueError(f"Point at index {index} is invalid.")
-
-        point_id = point.get("id")
-        if not isinstance(point_id, str) or not point_id.strip():
-            raise ValueError(f"Point at index {index} must have a non-empty string id.")
-        if point_id in seen_ids:
-            raise ValueError(f"Point id {point_id!r} is duplicated.")
-
-        coordinates = point.get("coordinates")
-        if not isinstance(coordinates, list) or len(coordinates) != 2:
-            raise ValueError(f"Point {point_id!r} must have coordinates [lng, lat].")
-
-        lng = float(coordinates[0])
-        lat = float(coordinates[1])
-        if not -180 <= lng <= 180:
-            raise ValueError("Longitude must be between -180 and 180.")
-        if not -90 <= lat <= 90:
-            raise ValueError("Latitude must be between -90 and 90.")
-        normalized.append((point_id, lng, lat))
-        seen_ids.add(point_id)
-    return normalized
+        request = ElevationsRequestBody.model_validate(json.load(fh))
+    return [(point.id, *point.coordinates) for point in request.points]
 
 
 def _bbox(points: Sequence[tuple[str, float, float]]) -> dict[str, float]:

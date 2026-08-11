@@ -5,7 +5,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 
+from merit_api import dem
+from merit_api.profile import build_quality
 from scripts import summarize_coverage_quality as summary_module
 
 type WritePayloadFn = Callable[[dict[str, object]], Path]
@@ -28,14 +31,14 @@ def _sample_point(point_id: str, lng: float, lat: float) -> dict[str, object]:
 def test_rejects_missing_points_array(write_payload: WritePayloadFn) -> None:
     input_path = write_payload({})
 
-    with pytest.raises(ValueError, match="points array"):
+    with pytest.raises(ValidationError, match="Field required"):
         _ = summary_module._load_request_points(input_path)
 
 
 def test_rejects_out_of_range_coordinates(write_payload: WritePayloadFn) -> None:
     input_path = write_payload({"points": [_sample_point("point-0", -71.2, 95.0)]})
 
-    with pytest.raises(ValueError, match="Latitude must be between -90 and 90"):
+    with pytest.raises(ValidationError, match="Latitude must be between -90 and 90"):
         _ = summary_module._load_request_points(input_path)
 
 
@@ -55,9 +58,9 @@ def test_build_summary_aggregates_statuses_for_exact_request_points(
         bounds=SimpleNamespace(left=-180, bottom=-90, right=180, top=90),
     )
 
-    with patch.object(summary_module.dem, "_open_dataset", return_value=fake_dataset):
+    with patch.object(dem, "_open_dataset", return_value=fake_dataset):
         with patch.object(
-            summary_module.dem,
+            dem,
             "sample_points",
             return_value=[
                 {"elevation_m": 10.0, "status": "ok"},
@@ -78,7 +81,7 @@ def test_build_summary_aggregates_statuses_for_exact_request_points(
 
 def test_quality_matches_api_helper_output(write_payload: WritePayloadFn) -> None:
     statuses = ["ok", "ok", "nodata", "out_of_coverage"]
-    expected = summary_module.profile_module.build_quality(statuses)
+    expected = build_quality(statuses)
     input_path = write_payload(
         {
             "points": [
@@ -94,9 +97,9 @@ def test_quality_matches_api_helper_output(write_payload: WritePayloadFn) -> Non
         bounds=SimpleNamespace(left=-180, bottom=-90, right=180, top=90),
     )
 
-    with patch.object(summary_module.dem, "_open_dataset", return_value=fake_dataset):
+    with patch.object(dem, "_open_dataset", return_value=fake_dataset):
         with patch.object(
-            summary_module.dem,
+            dem,
             "sample_points",
             side_effect=[[{"elevation_m": None, "status": status} for status in statuses]],
         ):
@@ -121,9 +124,9 @@ def test_build_summary_preserves_duplicate_coordinate_points_as_requested(
         bounds=SimpleNamespace(left=-180, bottom=-90, right=180, top=90),
     )
 
-    with patch.object(summary_module.dem, "_open_dataset", return_value=fake_dataset):
+    with patch.object(dem, "_open_dataset", return_value=fake_dataset):
         with patch.object(
-            summary_module.dem,
+            dem,
             "sample_points",
             return_value=[
                 {"elevation_m": 10.0, "status": "ok"},
